@@ -5,8 +5,8 @@ void RendererInit(renderer_t *Renderer, free_allocator *Allocator, resource_regi
     renderer_t pRenderer = (renderer_t)FreeListAllocatorAlloc(Allocator, sizeof(renderer));
     
     device_create_info DeviceInfo = {};
-    DeviceInfo.Width       = Width;
-    DeviceInfo.Height      = Height;
+    DeviceInfo.Width       = 0;
+    DeviceInfo.Height      = 0;
     DeviceInfo.RefreshRate = RefreshRate;
     DeviceInfo.Window      = Window;
     DeviceInfo.SampleCount = 1;
@@ -16,11 +16,52 @@ void RendererInit(renderer_t *Renderer, free_allocator *Allocator, resource_regi
     RenderTargetInfo.Device = pRenderer->Device;
     pRenderer->RenderTarget = CreateResource(Registry, Resource_RenderTarget, &RenderTargetInfo);
     
+    file_t VertFile = PlatformLoadFile("data/shaders/quad_vert.cso");
+    file_t FragFile = PlatformLoadFile("data/shaders/quad_frag.cso");
+    
+    pipeline_create_info PipelineInfo = {};
+    PipelineInfo.Device              = pRenderer->Device;
+    PipelineInfo.VertexData          = GetFileBuffer(VertFile);
+    PipelineInfo.PixelData           = GetFileBuffer(FragFile);
+    PipelineInfo.VertexDataSize      = PlatformGetFileSize(VertFile);
+    PipelineInfo.PixelDataSize       = PlatformGetFileSize(FragFile);
+    PipelineInfo.PipelineLayout      = NULL;
+    PipelineInfo.PipelineLayoutCount = 0;
+    pRenderer->Pipeline = CreateResource(Registry, Resource_Pipeline, &PipelineInfo);
+    
+    //~ Create the sample texture that the ray traced image is copied into, but do not upload the data
+    
+    //
+    
+    pRenderer->TextureWidth  = 1920;
+    pRenderer->TextureHeight = 1080;
+    
+    texture2d_create_info TextureInfo = {};
+    TextureInfo.Device              = pRenderer->Device;
+    TextureInfo.Width               = pRenderer->TextureWidth;
+    TextureInfo.Height              = pRenderer->TextureHeight;
+    TextureInfo.Usage               = BufferUsage_Dynamic;
+    TextureInfo.CpuAccessFlags      = BufferCpuAccess_Write;
+    TextureInfo.BindFlags           = BufferBind_ShaderResource;
+    TextureInfo.MiscFlags           = BufferMisc_None;
+    TextureInfo.StructureByteStride = 0;
+    TextureInfo.Format              = PipelineFormat_R32G32B32_FLOAT;
+    pRenderer->RaytracedTexture = CreateResource(Registry, Resource_Texture2D, &TextureInfo);
+    
+    // Uplload default texture
+    u32 BytesPerPixel = sizeof(r32) * 3;
+    pRenderer->TextureSize = pRenderer->TextureWidth * pRenderer->TextureHeight * BytesPerPixel;
+    pRenderer->TextureBackbuffer = FreeListAllocatorAlloc(Allocator, pRenderer->TextureSize);
+    memset(pRenderer->TextureBackbuffer, 0, pRenderer->TextureSize);
+    
     *Renderer = pRenderer;
 }
 
 void RendererShutdown(renderer_t *Renderer, free_allocator *Allocator)
 {
+    FreeListAllocatorAllocFree(Allocator, (*Renderer)->TextureBackbuffer);
+    (*Renderer)->TextureBackbuffer = NULL;
+    
     FreeListAllocatorAllocFree(Allocator, *Renderer);
     *Renderer = NULL;
 }
@@ -59,8 +100,36 @@ void RendererResize(renderer_t Renderer, resource_registry *Registry)
     pBuffer->Release();
 }
 
+void RendererUi()
+{
+    
+}
+
+file_internal void UpdateTextureResource(renderer_t Renderer, frame_params *FrameParams)
+{
+    ID3D11DeviceContext *DeviceContext = FrameParams->Resources[Renderer->Device.Index].Device.Context;
+    ID3D11Texture2D     *Texture = FrameParams->Resources[Renderer->RaytracedTexture.Index].Texture.Handle;
+    
+    D3D11_MAPPED_SUBRESOURCE TextureResource;
+    HRESULT hr = DeviceContext->Map(Texture, 0, D3D11_MAP_WRITE_DISCARD, 0, &TextureResource);
+    
+    if (FAILED(hr))
+    {
+        mprinte("Failed to map the texture resource at setup!\n");
+    }
+    else
+    {
+        void* Backbuffer = TextureResource.pData;
+        memcpy(Backbuffer, Renderer->TextureBackbuffer, TextureResource.DepthPitch);
+        
+        DeviceContext->Unmap(Texture, 0);
+    }
+}
+
 void RendererEntry(renderer_t Renderer, frame_params *FrameParams)
 {
+    UpdateTextureResource(Renderer, FrameParams);
+    
     ID3D11DeviceContext *DeviceContext =
         FrameParams->Resources[Renderer->Device.Index].Device.Context;
     IDXGISwapChain *Swapchain =
@@ -68,10 +137,9 @@ void RendererEntry(renderer_t Renderer, frame_params *FrameParams)
     ID3D11RenderTargetView *RenderTarget =
         FrameParams->Resources[Renderer->RenderTarget.Index].RenderTarget.Handle;
     
-    //ID3D11InputLayout  *Layout       = Registry->Resources[Renderer->SimplePipeline.Index]->Pipeline.Layout;
-    //ID3D11VertexShader *VertexShader = Registry->Resources[Renderer->SimplePipeline.Index]->Pipeline.VertexShader;
-    //ID3D11PixelShader  *PixelShader  = Registry->Resources[Renderer->SimplePipeline.Index]->Pipeline.PixelShader;
-    //ID3D11Buffer *VBuffer = Registry->Resources[Renderer->VertexBuffer.Index]->Buffer.Handle;
+    ID3D11InputLayout  *Layout       = FrameParams->Resources[Renderer->Pipeline.Index].Pipeline.Layout;
+    ID3D11VertexShader *VertexShader = FrameParams->Resources[Renderer->Pipeline.Index].Pipeline.VertexShader;
+    ID3D11PixelShader  *PixelShader  = FrameParams->Resources[Renderer->Pipeline.Index].Pipeline.PixelShader;
     
     DeviceContext->OMSetRenderTargets(1, &RenderTarget, NULL);
     
@@ -90,73 +158,33 @@ void RendererEntry(renderer_t Renderer, frame_params *FrameParams)
     vec4 ClearColor = { 0.0f, 0.2f, 0.4f, 1.0f };
     DeviceContext->ClearRenderTargetView(RenderTarget, ClearColor.data);
     
+    DeviceContext->IASetInputLayout(Layout);
+    DeviceContext->VSSetShader(VertexShader, 0, 0);
+    DeviceContext->PSSetShader(PixelShader, 0, 0);
+    
+    resource_texture RayTracedTexture = FrameParams->Resources[Renderer->RaytracedTexture.Index].Texture;
+    DeviceContext->PSSetShaderResources(0, 1, &RayTracedTexture.View);
+    DeviceContext->PSSetSamplers(0, 1, &RayTracedTexture.Sampler);
+    
+    // select which primtive type we are using
+    DeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    
+    //DeviceContext->DrawIndexed(Renderer->IndexCount, 0, 0);
+    DeviceContext->Draw(4, 0);
+    
+    // Defer updates to the next frame
     for (u32 i = 0; i < FrameParams->RenderCommandsCount; ++i)
     {
-        render_command Cmd = FrameParams->RenderCommands[i];
+        render_command RenderCmd = FrameParams->RenderCommands[i];
         
-        if (Cmd.Type == RenderCmd_Draw)
+        switch (RenderCmd.Type)
         {
-            asset_id AssetId = Cmd.DrawCmd.Asset;
-            
-            if (IsValidAsset(FrameParams->Assets, AssetId))
+            case RenderCmd_DrawDevUi:
             {
-                asset Asset = FrameParams->Assets[AssetId.Index];
-                
-                if (AssetId.Type == Asset_SimpleModel)
-                {
-                    resource_id PipelineId = Asset.SimpleModel.Pipeline;
-                    resource_id VertexId = Asset.SimpleModel.VertexBuffer;
-                    resource_id DiffuseId = Asset.SimpleModel.DiffuseTexture;
-                    
-                    resource_pipeline Pipeline = FrameParams->Resources[PipelineId.Index].Pipeline;
-                    resource_buffer VertexBuffer = FrameParams->Resources[VertexId.Index].Buffer;
-                    
-                    ID3D11InputLayout  *Layout = Pipeline.Layout;
-                    ID3D11VertexShader *VertexShader = Pipeline.VertexShader;
-                    ID3D11PixelShader  *PixelShader  = Pipeline.PixelShader;
-                    ID3D11Buffer *VBuffer = VertexBuffer.Handle;
-                    
-                    DeviceContext->IASetInputLayout(Layout);
-                    
-                    // set the shader objects to be active
-                    DeviceContext->VSSetShader(VertexShader, 0, 0);
-                    DeviceContext->PSSetShader(PixelShader, 0, 0);
-                    
-                    // Bind Pixel Shader resources
-                    if (IsValidResource(FrameParams->Resources, DiffuseId))
-                    {
-                        resource_texture DiffuseTexture = FrameParams->Resources[DiffuseId.Index].Texture;
-                        
-                        DeviceContext->PSSetShaderResources(0, 1, &DiffuseTexture.View);
-                    }
-                    
-                    UINT Stride = Asset.SimpleModel.VertexStride;
-                    UINT Offset = Asset.SimpleModel.VertexOffset;
-                    DeviceContext->IASetVertexBuffers(0, 1, &VBuffer, &Stride, &Offset);
-                    
-                    // select which primtive type we are using
-                    DeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-                    
-                    // draw the vertex buffer to the back buffer
-                    DeviceContext->Draw(Asset.SimpleModel.VertexCount, 0);
-                }
-            }
+                RenderCmd.DrawDevUi.Callback(FrameParams);
+            } break;
         }
     }
-    
-    
-    // Draw dev gui
-    MapleDevGuiNewFrame();
-    ImGui_ImplWin32_NewFrame();
-    ImGui::NewFrame();
-    {
-        ImGui::ShowDemoWindow();
-    }
-    ImGui::Render();
-    ImDrawData* ImDrawData = ImGui::GetDrawData();
-    MapleDevGuiRenderDrawData(ImDrawData);
-    ImGui::EndFrame();
-    
     
     Swapchain->Present(0, 0);
 }

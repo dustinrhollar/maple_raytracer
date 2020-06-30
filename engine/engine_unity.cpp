@@ -10,6 +10,7 @@
 
 //~ Type System
 
+#include "engine_core.h"
 #include "utils/maple_types.h"
 
 //~ Platform file
@@ -58,23 +59,26 @@
 #include "assets/asset.h"
 #include "assets/asset.cpp"
 
-//~ Renderer API
-
-#include "graphics/render_command.h"
-
 //~ UI
 
 #include "ui/imgui/imgui.h"
 
 //~ Frame Info
 
+#include "ui/win32/imgui_impl_win32.h"
+#include "ui/ui.h"
+
+#include "ui/dev_ui.h"
+#include "ui/dev_ui.cpp"
+
+#include "graphics/render_command.h"
+
 #include "frame_info/frame_params.h"
 #include "frame_info/frame_params.cpp"
 
-//~ Platform Specific Code & Entry point
+#include "graphics/render_command.h"
 
-#include "ui/ui.h"
-#include "ui/win32/imgui_impl_win32.h"
+//~ Platform Specific Code & Entry point
 
 #include "graphics/dx11/maple_dx11.cpp"
 #include "graphics/dx11/resources_dx11.cpp"

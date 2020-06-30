@@ -96,9 +96,8 @@ asset_id CreateAsset(asset_registry *Registry, asset_type Type, void *CreateInfo
             {
                 texture2d_create_info CreateInfo = {};
                 CreateInfo.Device = Registry->Renderer->Device;
-                CreateInfo.TextureFile = Info->DiffuseTextureFilename;
-                
-                SimpleModel.DiffuseTexture = CreateResource(Info->ResourceRegistry, Resource_Texture2D, &CreateInfo);
+                //CreateInfo.TextureFile = Info->DiffuseTextureFilename;
+                //SimpleModel.DiffuseTexture = CreateResource(Info->ResourceRegistry, Resource_Texture2D, &CreateInfo);
             }
             else
             {

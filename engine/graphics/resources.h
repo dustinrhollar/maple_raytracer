@@ -12,6 +12,13 @@ struct vertex
     vec2 Tex0;
 };
 
+struct quad_vertex
+{
+    vec3 Position;
+    vec4 Color;
+    vec2 Tex0;
+};
+
 struct simple_vertex
 {
     vec3 Position;
@@ -108,24 +115,39 @@ struct buffer_create_info
     u32                     SysMemSlicePitch;
 };
 
-struct texture2d_create_info
-{
-    resource_id Device;
-    const char *TextureFile;
-};
-
-enum pipeline_layout_format
+enum input_format
 {
     PipelineFormat_R32G32_FLOAT,
     PipelineFormat_R32G32B32_FLOAT,
     PipelineFormat_R32G32B32A32_FLOAT,
+    PipelineFormat_R32G32B32_UINT,
+    PipelineFormat_R32G32B32A32_UINT,
+};
+
+struct texture2d_create_info
+{
+    resource_id Device;
+    
+    u32 Width;
+    u32 Height;
+    buffer_usage            Usage;
+    buffer_cpu_access_flags CpuAccessFlags;
+    buffer_bind_flags       BindFlags;
+    buffer_misc_flags       MiscFlags;
+    u32                     StructureByteStride;
+    input_format            Format;
+    
+    // Optional data
+    const void             *Data;
+    u32                     SysMemPitch;
+    u32                     SysMemSlicePitch;
 };
 
 struct pipeline_layout_create_info
 {
     const char            *Name;
     u32                    SemanticIndex; // i.e. if name is COLOR1, then semantic index is 1
-    pipeline_layout_format InputFormat;
+    input_format           InputFormat;
     u32                    InputSlot;
     u32                    Offset;
     bool                   PerVertex; // true if stride is per vertex

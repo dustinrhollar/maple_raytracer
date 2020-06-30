@@ -8,9 +8,14 @@ struct renderer
     resource_id Device;
     resource_id RenderTarget;
     
-    // Temporary Code
-    resource_id VertexBuffer;
-    resource_id SimplePipeline;
+    resource_id Pipeline;
+    
+    u32 TextureWidth;
+    u32 TextureHeight;
+    resource_id RaytracedTexture;
+    
+    u64   TextureSize;
+    void *TextureBackbuffer;
 };
 
 void RendererInit(renderer_t        *Renderer,

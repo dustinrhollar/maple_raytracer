@@ -37,6 +37,7 @@ struct resource_texture
 {
     ID3D11Texture2D          *Handle;
     ID3D11ShaderResourceView *View;
+    ID3D11SamplerState       *Sampler;
 };
 
 struct resource
@@ -451,67 +452,95 @@ resource_id CreateResource(resource_registry *Registry, resource_type Type, void
             texture2d_create_info *Info = (texture2d_create_info*)CreateInfo;
             ID3D11Device *Device = Registry->Resources[Info->Device.Index]->Device.Handle;
             
-            i32 Width, Height, Channels;
-            unsigned char *Data = stbi_load(Info->TextureFile, &Width, &Height, &Channels, STBI_rgb_alpha);
-            u64 ImageSize = Width * Height * 4;
-            
-            if (!Data)
-            {
-                mprinte("Failed to load texture from file %s!\n", Info->TextureFile);
-                return Result;
-            }
-            
-            {
-                D3D11_TEXTURE2D_DESC desc;
-                memset( &desc, 0, sizeof(desc));
-                
-                desc.Width = 256;
-                desc.Height = 256;
-                desc.MipLevels = 1;
-                desc.ArraySize = 1;
-                desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                desc.SampleDesc.Count = 1;
-                desc.Usage = D3D11_USAGE_DYNAMIC;
-                desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-                desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-                desc.MiscFlags = 0;
-                
-                ID3D11Device *pd3dDevice; // Don't forget to initialize this
-                ID3D11Texture2D *pTexture = NULL;
-                HRESULT hr = Device->CreateTexture2D( &desc, NULL, &pTexture );
-                
-                
-                if (FAILED(hr))
-                {
-                    mprinte("Failed to create exampel 2D image texture %d!\n", hr);
-                    return Result;
-                }
-                
-            }
-            
             resource_texture Texture = {};
             
             D3D11_TEXTURE2D_DESC desc;
             memset( &desc, 0, sizeof(desc));
             
             // TODO(Dustin): Handle mipping
-            desc.Width            = Width;
-            desc.Height           = Height;
+            desc.Width            = Info->Width;
+            desc.Height           = Info->Height;
             desc.MipLevels        = 1;
             desc.ArraySize        = 1;
-            desc.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
             desc.SampleDesc.Count = 1;
-            desc.Usage            = D3D11_USAGE_IMMUTABLE;
-            desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
-            desc.CPUAccessFlags   = 0;
-            desc.MiscFlags        = 0;
             
-            D3D11_SUBRESOURCE_DATA InitData = {0};
-            InitData.pSysMem          = Data;
-            InitData.SysMemPitch      = Width * 4;
-            InitData.SysMemSlicePitch = 0;
+            switch (Info->Format)
+            {
+                case PipelineFormat_R32G32_FLOAT:       desc.Format = DXGI_FORMAT_R32G32_FLOAT;       break;
+                case PipelineFormat_R32G32B32_FLOAT:    desc.Format = DXGI_FORMAT_R32G32B32_FLOAT;    break;
+                case PipelineFormat_R32G32B32A32_FLOAT: desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT; break;
+                case PipelineFormat_R32G32B32_UINT:     desc.Format = DXGI_FORMAT_R32G32B32_UINT;     break;
+                case PipelineFormat_R32G32B32A32_UINT:  desc.Format = DXGI_FORMAT_R32G32B32A32_UINT;  break;
+                default: mprinte("Format not currently supported!\n");
+            }
             
-            HRESULT hr = Device->CreateTexture2D( &desc, &InitData, &Texture.Handle );
+            switch (Info->Usage)
+            {
+                case BufferUsage_Default:
+                {
+                    desc.Usage = D3D11_USAGE_DEFAULT; // write access access by CPU and GPU
+                } break;
+                
+                case BufferUsage_Immutable:
+                {
+                    desc.Usage = D3D11_USAGE_IMMUTABLE;
+                } break;
+                
+                case BufferUsage_Dynamic:
+                {
+                    desc.Usage = D3D11_USAGE_DYNAMIC;
+                } break;
+                
+                case BufferUsage_Staging:
+                {
+                    desc.Usage = D3D11_USAGE_STAGING;
+                } break;
+                
+                default: break;
+            }
+            
+            desc.BindFlags = 0;
+            if (Info->BindFlags & BufferBind_VertexBuffer)
+                desc.BindFlags |= D3D11_BIND_VERTEX_BUFFER;
+            if (Info->BindFlags & BufferBind_IndexBuffer)
+                desc.BindFlags |= D3D11_BIND_INDEX_BUFFER;
+            if (Info->BindFlags & BufferBind_ConstantBuffer)
+                desc.BindFlags |= D3D11_BIND_CONSTANT_BUFFER;
+            if (Info->BindFlags & BufferBind_ShaderResource)
+                desc.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
+            if (Info->BindFlags & BufferBind_StreamOutput)
+                desc.BindFlags |= D3D11_BIND_STREAM_OUTPUT;
+            if (Info->BindFlags & BufferBind_RenderTarget)
+                desc.BindFlags |= D3D11_BIND_RENDER_TARGET;
+            if (Info->BindFlags & BufferBind_DepthStencil)
+                desc.BindFlags |= D3D11_BIND_DEPTH_STENCIL;
+            if (Info->BindFlags & BufferBind_UnorderedAccess)
+                desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+            
+            desc.CPUAccessFlags = 0;
+            if (Info->CpuAccessFlags & BufferCpuAccess_Write)
+                desc.CPUAccessFlags |= D3D11_CPU_ACCESS_WRITE;
+            if (Info->CpuAccessFlags & BufferCpuAccess_Read)
+                desc.CPUAccessFlags |= D3D11_CPU_ACCESS_READ;
+            
+            desc.MiscFlags = 0;
+            if (Info->MiscFlags & BufferMisc_GenMips)
+                desc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
+            
+            HRESULT hr;
+            if (Info->Data)
+            {
+                D3D11_SUBRESOURCE_DATA InitData = {0};
+                InitData.pSysMem          = Info->Data;
+                InitData.SysMemPitch      = Info->Width * 4;
+                InitData.SysMemSlicePitch = 0;
+                hr = Device->CreateTexture2D( &desc, &InitData, &Texture.Handle );
+            }
+            else
+            {
+                hr = Device->CreateTexture2D( &desc, NULL, &Texture.Handle );
+            }
+            
             
             if (FAILED(hr))
             {
@@ -522,7 +551,7 @@ resource_id CreateResource(resource_registry *Registry, resource_type Type, void
             D3D11_SHADER_RESOURCE_VIEW_DESC SRVDesc;
             memset( &SRVDesc, 0, sizeof( SRVDesc ) );
             
-            SRVDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            SRVDesc.Format = desc.Format;
             SRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
             SRVDesc.Texture2D.MipLevels = 1;
             
@@ -533,6 +562,28 @@ resource_id CreateResource(resource_registry *Registry, resource_type Type, void
                 
                 Texture.Handle->Release();
                 return Result;
+            }
+            
+            {
+                D3D11_SAMPLER_DESC desc;
+                ZeroMemory(&desc, sizeof(desc));
+                desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+                desc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+                desc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+                desc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+                desc.MipLODBias = 0.f;
+                desc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+                desc.MinLOD = 0.f;
+                desc.MaxLOD = 0.f;
+                hr = Device->CreateSamplerState(&desc, &Texture.Sampler);
+                if ( FAILED(hr) )
+                {
+                    mprinte("Failed to sampler for the image %d!\n", hr);
+                    
+                    Texture.Handle->Release();
+                    Texture.View->Release();
+                    return Result;
+                }
             }
             
             // Active the Id

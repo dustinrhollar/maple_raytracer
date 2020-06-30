@@ -5,3 +5,6 @@
 fxc /nologo /Od /Zi /T vs_5_0 /Fosimple_vert.cso simple.hlsl
 fxc /nologo /Od /Zi /T ps_5_0 /Fosimple_frag.cso simple_frag.hlsl
 
+fxc /nologo /Od /Zi /T vs_5_0 /Foquad_vert.cso quad_vert.hlsl
+fxc /nologo /Od /Zi /T ps_5_0 /Foquad_frag.cso quad_frag.hlsl
+

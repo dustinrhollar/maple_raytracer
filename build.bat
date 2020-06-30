@@ -56,7 +56,7 @@ IF "%1" == "gm" (
 	:: /PDB:maple_game_%time%.pdb
     pushd build\
         echo Building game...
-		cl /MT -nologo /Zi /EHsc /I%HOST_DIR%\engine %HOST_DIR%\example\example_unity.cpp /LD /Feexample.dll /link /EXPORT:GameStageEntry
+		cl /MT -nologo /Zi /EHsc /I%HOST_DIR%\engine %HOST_DIR%\raytracer\raytracer_unity.cpp /LD /Feexample.dll /link /EXPORT:GameStageEntry
 	popd
     EXIT /B %ERRORLEVEL%
 )

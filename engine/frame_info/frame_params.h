@@ -24,6 +24,11 @@ struct frame_params
     resource_t      Resources;
     u32             ResourcesCount;
     
+    //~ Texture Memory
+    void *TextureBackbuffer;
+    u32   TextureWidth;
+    u32   TextureHeight;
+    
     //~ Assets
     asset_t         Assets;
     u32             AssetsCount;

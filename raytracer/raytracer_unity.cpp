@@ -22,8 +22,9 @@ typedef struct renderer* renderer_t;
 #include <platform/platform.h>
 #include <graphics/resources.h>
 #include <assets/asset.h>
+#include <ui/dev_ui.h>
 #include <graphics/render_command.h>
 #include <frame_info/frame_params.h>
 
 // Game Code
-#include "src/example_main.cpp"
+#include "src/maple_raytracer.cpp"

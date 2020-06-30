@@ -1296,9 +1296,9 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         CreateInfo.IndicesStride          = 0;
         CreateInfo.VertexShader           = "data/shaders/simple_vert.cso";
         CreateInfo.PixelShader            = "data/shaders/simple_frag.cso";
-        CreateInfo.DiffuseTextureFilename = "W:/maple_engine/build/data/textures/wall.jpg";
+        //CreateInfo.DiffuseTextureFilename = "W:/maple_engine/build/data/textures/wall.jpg";
         
-        CreateAsset(&AssetRegistry, Asset_SimpleModel, &CreateInfo);
+        //CreateAsset(&AssetRegistry, Asset_SimpleModel, &CreateInfo);
     }
     
     //~ Initialize ImGui stuff
@@ -1319,6 +1319,26 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     Win32LoadGameCode(&GameCode, GetStr(&GameDllCopy));
     
     //~ App Loop
+    
+    // TODO(Dustin): Spawn a thread call Update from there
+    { // Do a first pass draw of the scene
+        frame_params FrameParams = {};
+        FrameParamsInit(&FrameParams, 0, 0, &TaggedHeap, Renderer,
+                        &ResourceRegistry, &AssetRegistry);
+        FrameParams.TextureBackbuffer = Renderer->TextureBackbuffer;
+        FrameParams.TextureWidth = Renderer->TextureWidth;
+        FrameParams.TextureHeight = Renderer->TextureHeight;
+        
+        GameCode.GameStageEntry(&FrameParams);
+        
+        FrameParams.GameStageEndTime     = PlatformGetWallClock();
+        FrameParams.RenderStageStartTime = FrameParams.GameStageEndTime;
+        
+        RendererEntry(Renderer, &FrameParams);
+        
+        FrameParamsFree(&FrameParams);
+    }
+    
     ShowWindow(ClientWindow, nCmdShow);
     
     u64 LastFrameTime = PlatformGetWallClock();
@@ -1371,8 +1391,18 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         frame_params FrameParams = {};
         FrameParamsInit(&FrameParams, FrameCount++, LastFrameTime, &TaggedHeap, Renderer,
                         &ResourceRegistry, &AssetRegistry);
+        FrameParams.TextureBackbuffer = Renderer->TextureBackbuffer;
+        FrameParams.TextureWidth = Renderer->TextureWidth;
+        FrameParams.TextureHeight = Renderer->TextureHeight;
         
-        GameCode.GameStageEntry(&FrameParams);
+        if (RenderDevGui)
+        {
+            render_command UiCmd = {};
+            UiCmd.Type      = RenderCmd_DrawDevUi;
+            UiCmd.DrawDevUi = { &RaytraceCallback };
+            
+            FrameParams.RenderCommands[FrameParams.RenderCommandsCount++] = UiCmd;
+        }
         
         FrameParams.GameStageEndTime     = PlatformGetWallClock();
         FrameParams.RenderStageStartTime = FrameParams.GameStageEndTime;
