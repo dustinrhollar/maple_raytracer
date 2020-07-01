@@ -78,6 +78,8 @@
 
 #include "graphics/render_command.h"
 
+#include "camera/camera.h"
+
 //~ Platform Specific Code & Entry point
 
 #include "graphics/dx11/maple_dx11.cpp"

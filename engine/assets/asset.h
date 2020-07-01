@@ -16,69 +16,27 @@ struct asset_id
 
 enum asset_type
 {
-    Asset_SimpleModel,
-    Asset_Model,
-    Asset_Texture,
-    Asset_Material,
+    Asset_Sphere,
 };
 
-struct simple_model_create_info
+struct sphere_create_info
 {
-    resource_registry *ResourceRegistry;
-    
-    void              *Vertices;
-    u32                VerticesCount;
-    u32                VertexStride;
-    
-    void              *Indices;
-    u32                IndicesCount;
-    u32                IndicesStride;
-    
-    const char        *VertexShader;
-    const char        *PixelShader;
-    
-    const char        *DiffuseTextureFilename;
-    
-    // TODO(Dustin): Other material info?
+    vec3 Origin;
+    r32  Radius;
 };
 
-struct asset_material
+struct asset_sphere
 {
-    
+    vec3 Origin;
+    r32  Radius;
 };
-
-struct asset_texture
-{
-    
-};
-
-struct asset_model
-{
-    
-};
-
-// NOTE(Dustin): Temporary asset used for early testing
-struct asset_simple_model
-{
-    resource_id VertexBuffer;
-    resource_id IndexBuffer;
-    
-    u32         VertexCount;
-    u32         VertexStride;
-    u32         VertexOffset; // offset into a buffer?
-    
-    resource_id Pipeline;
-    
-    resource_id DiffuseTexture;
-};
-
 
 struct asset
 {
     asset_id Id;
     union
     {
-        asset_simple_model SimpleModel;
+        asset_sphere Sphere;
     };
 };
 
@@ -105,7 +63,7 @@ void AssetRegistryInit(asset_registry *Registry, renderer_t Renderer, free_alloc
 void AssetRegistryFree(asset_registry *Registry, free_allocator *GlobalMemoryAllocator);
 
 asset_id CreateAsset(asset_registry *Registry, asset_type Type, void *CreateInfo);
-void CopyAssets(asset_t *Assets, u32 *AssetsCount, asset_registry *AssetRegistry, tag_block_t Heap);
+void CopyAssets(asset_t *Assets, u32 *AssetsCount, asset_registry *AssetRegistry, free_allocator *Allocator);
 
 inline bool IsValidAsset(asset_t Assets, asset_id Id);
 

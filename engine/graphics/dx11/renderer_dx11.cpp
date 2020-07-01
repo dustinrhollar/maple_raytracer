@@ -31,8 +31,6 @@ void RendererInit(renderer_t *Renderer, free_allocator *Allocator, resource_regi
     
     //~ Create the sample texture that the ray traced image is copied into, but do not upload the data
     
-    //
-    
     pRenderer->TextureWidth  = 1920;
     pRenderer->TextureHeight = 1080;
     
@@ -107,6 +105,8 @@ void RendererUi()
 
 file_internal void UpdateTextureResource(renderer_t Renderer, frame_params *FrameParams)
 {
+    //mprint("Updating texture\n");
+    
     ID3D11DeviceContext *DeviceContext = FrameParams->Resources[Renderer->Device.Index].Device.Context;
     ID3D11Texture2D     *Texture = FrameParams->Resources[Renderer->RaytracedTexture.Index].Texture.Handle;
     
@@ -124,12 +124,12 @@ file_internal void UpdateTextureResource(renderer_t Renderer, frame_params *Fram
         
         DeviceContext->Unmap(Texture, 0);
     }
+    
+    //mprint("Done updating texture\n");
 }
 
 void RendererEntry(renderer_t Renderer, frame_params *FrameParams)
 {
-    UpdateTextureResource(Renderer, FrameParams);
-    
     ID3D11DeviceContext *DeviceContext =
         FrameParams->Resources[Renderer->Device.Index].Device.Context;
     IDXGISwapChain *Swapchain =
@@ -179,6 +179,11 @@ void RendererEntry(renderer_t Renderer, frame_params *FrameParams)
         
         switch (RenderCmd.Type)
         {
+            case RenderCmd_CopyTexture:
+            {
+                UpdateTextureResource(Renderer, FrameParams);
+            } break;
+            
             case RenderCmd_DrawDevUi:
             {
                 RenderCmd.DrawDevUi.Callback(FrameParams);

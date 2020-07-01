@@ -37,7 +37,8 @@ file_global r32 GlobalMouseYPos;
 
 // Game or Dev Mode?
 file_global bool GlobalIsDevMode = true;
-file_global bool RenderDevGui    = true;
+file_global bool RenderDevGui    = false;
+file_global bool NeedsToResize   = false;
 
 // Frame Info
 file_global u64 FrameCount = 0;
@@ -1190,6 +1191,95 @@ void PlatformGetClientWindowDimensions(u32 *Width, u32 *Height)
     *Height = rect.bottom - rect.top;
 }
 
+struct thread_storage
+{
+    game_code    *GameCode;
+    frame_params *FrameParams;
+};
+
+VOID CALLBACK
+MyWorkCallback(PTP_CALLBACK_INSTANCE Instance,
+               PVOID                 Parameter,
+               PTP_WORK              Work)
+{
+    UNREFERENCED_PARAMETER(Instance);
+    UNREFERENCED_PARAMETER(Work);
+    
+    
+    thread_storage *Storage = (thread_storage*)Parameter;
+    
+    mprinte("Work callback being executed!\n");
+    mprinte("Pixel X Start: %d, Pixel Y Start: %d!\n\n",
+            Storage->FrameParams->PixelXOffset, Storage->FrameParams->PixelYOffset);
+    
+    Storage->GameCode->GameStageEntry(Storage->FrameParams);
+    FrameParamsFree(Storage->FrameParams, &PermanantMemory);
+    
+    mprinte("Work completed.\n");
+}
+
+void CreateRenderJobs(camera* Camera, game_code *GameCode)
+{
+    u32 BlockPixelWidth  = Renderer->TextureWidth / 5;
+    u32 BlockPixelHeight = Renderer->TextureHeight / 5;
+    
+    u32 BlockWidth  = Renderer->TextureWidth / BlockPixelWidth;
+    if (Renderer->TextureWidth % BlockPixelWidth != 0) BlockWidth++;
+    
+    u32 BlockHeight = Renderer->TextureHeight / BlockPixelHeight;
+    if (Renderer->TextureHeight % BlockPixelHeight != 0) BlockHeight++;
+    
+    u32 BlockCount = BlockWidth * BlockHeight;
+    
+    frame_params *ThreadParams = (frame_params*)malloc(BlockCount * sizeof(frame_params));
+    thread_storage *Storage    = (thread_storage*)malloc(BlockCount * sizeof(thread_storage));
+    
+    u32 Idx = 0;
+    i32 StartXCoord = Renderer->TextureWidth - BlockPixelWidth;
+    i32 StartYCoord = Renderer->TextureHeight - BlockPixelHeight;
+    for (i32 j = 0; j < BlockHeight; ++j)
+    {
+        for (u32 i = 0; i < BlockWidth; ++i)
+        {
+            ThreadParams[Idx] = {};
+            FrameParamsInit(&ThreadParams[Idx], 0, 0, &PermanantMemory, Renderer,
+                            &ResourceRegistry, &AssetRegistry);
+            
+            ThreadParams[Idx].Camera = Camera;
+            
+            u32 StartXPixel = i * BlockPixelWidth;
+            u32 StartYPixel = j * BlockPixelHeight;
+            
+            // Remap the Y pixel
+            i32 RemappingY = StartYCoord - (j * BlockPixelHeight);
+            RemappingY = (RemappingY < 0) ? 0 : RemappingY;
+            
+            u32 Offset = (RemappingY * Renderer->TextureWidth) + StartXPixel;
+            
+            ThreadParams[Idx].TextureBackbuffer = (vec3*)Renderer->TextureBackbuffer + Offset;
+            
+            ThreadParams[Idx].TextureWidth  = Renderer->TextureWidth;
+            ThreadParams[Idx].TextureHeight = Renderer->TextureHeight;
+            ThreadParams[Idx].PixelXOffset  = StartXPixel;
+            ThreadParams[Idx].PixelYOffset  = StartYPixel;
+            
+            ThreadParams[Idx].ScanWidth = (StartXPixel + BlockPixelWidth > Renderer->TextureWidth)
+                ? (Renderer->TextureWidth - StartXPixel) : BlockPixelWidth;
+            ThreadParams[Idx].ScanHeight = (StartYPixel + BlockPixelHeight > Renderer->TextureHeight)
+                ? (Renderer->TextureHeight - StartYPixel) : BlockPixelHeight;
+            
+            Storage[Idx].GameCode    = GameCode;
+            Storage[Idx].FrameParams = &ThreadParams[Idx];
+            
+            Idx++;
+        }
+    }
+    
+    PTP_WORK *Work = (PTP_WORK*)malloc(BlockCount * sizeof(PTP_WORK));
+    for (u32 i = 0; i < BlockCount; ++i) Work[i] = CreateThreadpoolWork(&MyWorkCallback, &Storage[i], NULL);
+    for (u32 i = 0; i < BlockCount; ++i) SubmitThreadpoolWork(Work[i]);
+}
+
 INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow)
 {
     //~ Set the defaults of open files
@@ -1237,7 +1327,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     ClientWindowRectOld = ClientWindowRect;
     
     //~ Memory Setup
-    u64 MemorySize = _MB(50);
+    u64 MemorySize = _MB(200);
     GlobalMemoryPtr = PlatformRequestMemory(MemorySize);
     
     // Initialize memory manager
@@ -1245,7 +1335,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     
     // Tagged heap. 3 Stages + 1 Resource/Asset = 4 Tags / frame
     // Keep 3 Blocks for each Tag, allowing for 12 Blocks overall
-    TaggedHeapInit(&TaggedHeap, &PermanantMemory, _MB(24), _2MB, 10);
+    TaggedHeapInit(&TaggedHeap, &PermanantMemory, _MB(100), _2MB, 10);
     PlatformHeap = TaggedHeapRequestAllocation(&TaggedHeap, PlatformTag);
     
     u64 StringArenaSize  = _MB(1);
@@ -1267,40 +1357,6 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     
     AssetRegistryInit(&AssetRegistry, Renderer, &PermanantMemory, 100);
     
-    //~ Load some assets
-    {
-        tag_id_t Tag = {0, TAG_ID_ASSET, 0};
-        tagged_heap_block HeapBlock = TaggedHeapRequestAllocation(&TaggedHeap, Tag);
-        ConvertGltfMesh(&HeapBlock, "data/glTF/Fox/glTF/Fox.gltf");
-        
-        TaggedHeapReleaseAllocation(&TaggedHeap, Tag);
-    }
-    
-    {
-        simple_vertex Vertices[] = {
-            // positions          // colors           // texture coords
-            { {  0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 0.0f }, { 0.5f, 1.0f } },   // top right
-            { {  0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },   // bottom right
-            { { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },   // bottom left
-        };
-        
-        u32 SimpleStride = sizeof(simple_vertex);
-        
-        simple_model_create_info CreateInfo = {};;
-        CreateInfo.ResourceRegistry = &ResourceRegistry;
-        CreateInfo.Vertices               = Vertices;
-        CreateInfo.VerticesCount          = 3;
-        CreateInfo.VertexStride           = sizeof(simple_vertex);
-        CreateInfo.Indices                = NULL;
-        CreateInfo.IndicesCount           = 0;
-        CreateInfo.IndicesStride          = 0;
-        CreateInfo.VertexShader           = "data/shaders/simple_vert.cso";
-        CreateInfo.PixelShader            = "data/shaders/simple_frag.cso";
-        //CreateInfo.DiffuseTextureFilename = "W:/maple_engine/build/data/textures/wall.jpg";
-        
-        //CreateAsset(&AssetRegistry, Asset_SimpleModel, &CreateInfo);
-    }
-    
     //~ Initialize ImGui stuff
     ImGuiContext *ctx = ImGui::CreateContext();
     if (!ImGui_ImplWin32_Init(ClientWindow))
@@ -1318,27 +1374,25 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     mstring GameDllCopy = Win32NormalizePath("example.dll");
     Win32LoadGameCode(&GameCode, GetStr(&GameDllCopy));
     
-    //~ App Loop
+    camera Camera;
+    CameraInit(&Camera, Renderer->TextureWidth, Renderer->TextureHeight);
     
-    // TODO(Dustin): Spawn a thread call Update from there
-    { // Do a first pass draw of the scene
-        frame_params FrameParams = {};
-        FrameParamsInit(&FrameParams, 0, 0, &TaggedHeap, Renderer,
-                        &ResourceRegistry, &AssetRegistry);
-        FrameParams.TextureBackbuffer = Renderer->TextureBackbuffer;
-        FrameParams.TextureWidth = Renderer->TextureWidth;
-        FrameParams.TextureHeight = Renderer->TextureHeight;
+    //~ Create assets for the raytracer
+    {
+        sphere_create_info s1 = {};
+        s1.Origin = { 0.0f, 0.0f, -1.0f };
+        s1.Radius = 0.5f;
+        CreateAsset(&AssetRegistry, Asset_Sphere, &s1);
         
-        GameCode.GameStageEntry(&FrameParams);
-        
-        FrameParams.GameStageEndTime     = PlatformGetWallClock();
-        FrameParams.RenderStageStartTime = FrameParams.GameStageEndTime;
-        
-        RendererEntry(Renderer, &FrameParams);
-        
-        FrameParamsFree(&FrameParams);
+        sphere_create_info s2 = {};
+        s2.Origin = { 0.0f, -100.5f, -1.0f };
+        s2.Radius = 100.0f;
+        CreateAsset(&AssetRegistry, Asset_Sphere, &s2);
     }
     
+    CreateRenderJobs(&Camera, &GameCode);
+    
+    //~ Render Loop
     ShowWindow(ClientWindow, nCmdShow);
     
     u64 LastFrameTime = PlatformGetWallClock();
@@ -1349,12 +1403,23 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     MSG msg = {0};
     while (ClientIsRunning)
     {
+        frame_params FrameParams = {};
+        FrameParamsInit(&FrameParams, FrameCount++, PlatformGetWallClock(), &PermanantMemory, Renderer,
+                        &ResourceRegistry, &AssetRegistry);
+        FrameParams.TextureBackbuffer = Renderer->TextureBackbuffer;
+        FrameParams.TextureWidth = Renderer->TextureWidth;
+        FrameParams.TextureHeight = Renderer->TextureHeight;
+        
         // Reload Dll if necessary
         FILETIME DllWriteTime = Win32GetLastWriteTime(GetStr(&GameDllCopy));
         if (CompareFileTime(&DllWriteTime, &GameCode.DllLastWriteTime) != 0)
         {
+            // TODO(Dustin): Hot reloading is broken with the threading api.
+            // 2 loads always occur, and when the second job dispatch is issued,
+            // a deadlock occurs.
             Win32UnloadGameCode(&GameCode);
             Win32LoadGameCode(&GameCode, GetStr(&GameDllCopy));
+            //CreateRenderJobs(&Camera, &GameCode);
         }
         
         // Message loop
@@ -1364,6 +1429,33 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
             DispatchMessage(&msg);
         }
         
+        if (FrameCount % (u32)RefreshRate == 0)
+        {
+            render_command CopyCmd = {};
+            CopyCmd.Type      = RenderCmd_CopyTexture;
+            FrameParams.RenderCommands[FrameParams.RenderCommandsCount++] = CopyCmd;
+        }
+        
+        if (RenderDevGui)
+        {
+            render_command UiCmd = {};
+            UiCmd.Type      = RenderCmd_DrawDevUi;
+            UiCmd.DrawDevUi = { &RaytraceCallback };
+            
+            FrameParams.RenderCommands[FrameParams.RenderCommandsCount++] = UiCmd;
+        }
+        
+        FrameParams.GameStageEndTime     = PlatformGetWallClock();
+        FrameParams.RenderStageStartTime = FrameParams.GameStageEndTime;
+        
+        RendererEntry(Renderer, &FrameParams);
+        
+        FrameParamsFree(&FrameParams, &PermanantMemory);
+        
+        if (NeedsToResize)
+            RendererResize(Renderer, &ResourceRegistry);
+        
+        //~ Meet frame rate, if necessary
         u64 ClockNow = PlatformGetWallClock();
         r32 SecondsElapsedUpdate = PlatformGetSecondsElapsed(LastFrameTime, ClockNow);
         
@@ -1387,29 +1479,6 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         }
         
         LastFrameTime = PlatformGetWallClock();
-        
-        frame_params FrameParams = {};
-        FrameParamsInit(&FrameParams, FrameCount++, LastFrameTime, &TaggedHeap, Renderer,
-                        &ResourceRegistry, &AssetRegistry);
-        FrameParams.TextureBackbuffer = Renderer->TextureBackbuffer;
-        FrameParams.TextureWidth = Renderer->TextureWidth;
-        FrameParams.TextureHeight = Renderer->TextureHeight;
-        
-        if (RenderDevGui)
-        {
-            render_command UiCmd = {};
-            UiCmd.Type      = RenderCmd_DrawDevUi;
-            UiCmd.DrawDevUi = { &RaytraceCallback };
-            
-            FrameParams.RenderCommands[FrameParams.RenderCommandsCount++] = UiCmd;
-        }
-        
-        FrameParams.GameStageEndTime     = PlatformGetWallClock();
-        FrameParams.RenderStageStartTime = FrameParams.GameStageEndTime;
-        
-        RendererEntry(Renderer, &FrameParams);
-        
-        FrameParamsFree(&FrameParams);
     }
     
     MstringFree(&GameDllCopy);
@@ -1523,10 +1592,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 bool alt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
                 switch (wParam)
                 {
+                    case VK_SPACE:
+                    {
+                        RenderDevGui = !RenderDevGui;
+                    } break;
+                    
                     case VK_ESCAPE:
                     {
                         ClientIsRunning = false;
                     } break;
+                    
                     case VK_RETURN:
                     {
                         if (alt)
@@ -1540,8 +1615,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                                     GetClientRect(hwnd, &ClientWindowRectOld);
                                 
                                 SetFullscreen(!GlobalIsFullscreen);
+                                NeedsToResize = true;
                             } break;
+                            
                         } break;
+                        
                     } break;
                 }
             }
@@ -1555,7 +1633,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             int Width  = ClientWindowRect.right - ClientWindowRect.left;
             int Height = ClientWindowRect.bottom - ClientWindowRect.top;
             
-            RendererResize(Renderer, &ResourceRegistry);
+            NeedsToResize = true;
         } break;
         
         default: break;

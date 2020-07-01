@@ -605,11 +605,12 @@ resource_id CreateResource(resource_registry *Registry, resource_type Type, void
     return Result;
 }
 
-void CopyResources(resource_t *Resources, u32 *ResourcesCount, resource_registry *ResourceRegistry, tag_block_t Heap)
+void CopyResources(resource_t *Resources, u32 *ResourcesCount, resource_registry *ResourceRegistry,
+                   free_allocator *Allocator)
 {
     // TODO(Dustin): Account for hoels in the registry
     
-    resource_t ResourcesCopy = halloc<resource>(Heap, ResourceRegistry->ResourcesCount);
+    resource_t ResourcesCopy = palloc<resource>(Allocator, ResourceRegistry->ResourcesCount);
     
     for (u32 i = 0; i < ResourceRegistry->ResourcesCount; ++i)
     {

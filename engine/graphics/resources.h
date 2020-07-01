@@ -175,7 +175,8 @@ void ResourceRegistryFree(resource_registry *Registry, free_allocator *GlobalMem
 
 resource_id CreateResource(resource_registry *Registry, resource_type Type, void *CreateInfo);
 resource_id CreateDummyResource();
-void CopyResources(resource_t *Resources, u32 *ResourcesCount, resource_registry *ResourceRegistry, tag_block_t Heap);
+void CopyResources(resource_t *Resources, u32 *ResourcesCount, resource_registry *ResourceRegistry,
+                   free_allocator *Allocator);
 
 // A valid resource is a resource that is active and its generation matches the generation at
 // the designated index.

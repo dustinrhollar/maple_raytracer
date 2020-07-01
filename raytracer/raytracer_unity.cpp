@@ -27,4 +27,5 @@ typedef struct renderer* renderer_t;
 #include <frame_info/frame_params.h>
 
 // Game Code
+#include "camera/camera.h"
 #include "src/maple_raytracer.cpp"

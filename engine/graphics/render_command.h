@@ -4,8 +4,8 @@
 enum render_command_type
 {
     RenderCmd_Draw,
-    RenderCmd_UpdateGame,
     RenderCmd_DrawDevUi,
+    RenderCmd_CopyTexture,
 };
 
 struct render_command_draw
