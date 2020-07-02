@@ -7,6 +7,7 @@
 #define TAG_ID_RENDER   3
 #define TAG_ID_GPU      4
 #define TAG_ID_ASSET    5
+#define TAG_ID_THREAD   6
 
 struct binary_tag_tree_node;
 

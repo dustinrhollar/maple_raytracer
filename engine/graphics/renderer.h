@@ -14,8 +14,9 @@ struct renderer
     u32 TextureHeight;
     resource_id RaytracedTexture;
     
-    u64   TextureSize;
-    void *TextureBackbuffer;
+    u64           TextureSize;
+    void         *NotSafeMemory;
+    safe_memory_t Texture;
 };
 
 void RendererInit(renderer_t        *Renderer,
@@ -29,6 +30,6 @@ void RendererShutdown(renderer_t     *Renderer,
                       free_allocator *Allocator);
 
 void RendererResize(renderer_t Renderer, resource_registry *Registry);
-void RendererEntry(renderer_t Renderer, frame_params *FrameParams);
+void RendererEntry(renderer_t Renderer, resource_registry *Registry, frame_params *FrameParams);
 
 #endif //ENGINE_GRAPHICS_RENDERER_H

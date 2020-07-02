@@ -7,22 +7,37 @@ struct camera
     vec3 LowerLeftCorner;
     vec3 Horizontal;
     vec3 Vertical;
+    
+    vec3 U, V, W;
+    r32 LensRadius;
 };
 
-void CameraInit(camera *Camera, u32 Width, u32 Height)
+void CameraInit(camera *Camera,
+                vec3 LookFrom, vec3 LookAt, vec3 Up,
+                r32 vFov, r32 AspectRatio, r32 Aperture, r32 FocusDist)
 {
-    r32 AspectRatio = Width / Height;
+    r32 Theta = DegreesToRadians(vFov);
+    r32 H = tanf(Theta / 2.0f);
     
-    r32 ViewportHeight = 2.0f;
-    r32 ViewportWidth  = AspectRatio * ViewportHeight * 1.5f;
+    r32 ViewportHeight = 2.0f * H;
+    r32 ViewportWidth  = AspectRatio * ViewportHeight;
     r32 FocalLength = 1.0f;
     
-    Camera->Origin = { 0.0f, 0.0f, 0.0f };
-    Camera->Horizontal = { ViewportWidth,           0.0f, 0.0f };
-    Camera->Vertical   = {          0.0f, ViewportHeight, 0.0f };
+    Camera->W = norm(LookFrom - LookAt);
+    Camera->U = norm(cross(Up, Camera->W));
+    Camera->V = cross(Camera->W, Camera->U);
     
-    vec3 FocalVec   = { 0.0f, 0.0f, FocalLength};
-    Camera->LowerLeftCorner = Camera->Origin - (Camera->Horizontal / 2.0f) - (Camera->Vertical / 2.0f) - FocalVec;
+    Camera->Origin = LookFrom;
+    Camera->Horizontal = FocusDist * ViewportWidth * Camera->U;
+    Camera->Vertical   = FocusDist * ViewportHeight * Camera->V;
+    
+    Camera->LowerLeftCorner
+        = Camera->Origin
+        - (Camera->Horizontal / 2.0f)
+        - (Camera->Vertical / 2.0f)
+        - FocusDist *Camera->W;
+    
+    Camera->LensRadius = Aperture / 2.0f;
 }
 
 #endif //ENGINE_CAMERA_CAMERA_H

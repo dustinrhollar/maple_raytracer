@@ -3,6 +3,7 @@
 
 typedef struct platform_window* window_t;
 typedef struct file* file_t;
+typedef struct thread_safe_memory* safe_memory_t;
 
 typedef enum
 {
@@ -26,6 +27,12 @@ typedef enum
 // Platform Memory allocation
 void* PlatformRequestMemory(u64 Size);
 void PlatformReleaseMemory(void *Ptr, u64 Size);
+
+// Safe memory allocations - only occur in global memory pools
+void PlatformSafeMemoryAllocation(safe_memory_t *Memory, void *Ptr, u64 Size);
+void PlaformSafeMemoryCopy(safe_memory_t Memory, u32 SrcOffset, void *Dst, u32 DstOffset, u64 CopySize);
+void PlaformSafeMemoryWrite(safe_memory_t Memory, u32 DstOffset, void *Src, u32 SrcOffset, u64 WriteSize);
+void PlatformSafeMemoryRelease(safe_memory_t *Memory);
 
 // Log/Printing
 #define mformat PlatformFormatString

@@ -16,6 +16,9 @@
 #define LOG_BUFFER_SIZE 512
 #endif
 
+#include "../threading/thread_manager.h"
+#include "../threading/thread_manager.cpp"
+
 struct platform_window
 {
     HWND Window;
@@ -51,9 +54,10 @@ file_global tag_id_t          PlatformTag = {0, TAG_ID_PLATFORM, 0};
 file_global tagged_heap_block PlatformHeap;
 
 // graphics state
-renderer_t Renderer;
-resource_registry ResourceRegistry;
-asset_registry AssetRegistry;
+file_global renderer_t        Renderer;
+file_global resource_registry ResourceRegistry;
+file_global asset_registry    AssetRegistry;
+file_global thread_manager    ThreadManager;
 
 // File I/O Handling
 struct file
@@ -1167,6 +1171,29 @@ void PlatformReleaseMemory(void *Ptr, u64 Size)
     assert(bSuccess && "Unable to free a VirtualAlloc allocation!");
 }
 
+void PlatformSafeMemoryAllocation(safe_memory_t *Memory, void *Ptr, u64 Size)
+{
+    *Memory = palloc<thread_safe_memory>(&PermanantMemory, 1);
+    ThreadSafeMemoryInit(*Memory, Ptr, Size);
+}
+
+void PlaformSafeMemoryCopy(safe_memory_t Memory, u32 SrcOffset, void *Dst, u32 DstOffset, u64 CopySize)
+{
+    ThreadSafeMemoryCopy(Memory, SrcOffset, Dst, DstOffset, CopySize);
+}
+
+void PlaformSafeMemoryWrite(safe_memory_t Memory, u32 DstOffset, void *Src, u32 SrcOffset, u64 WriteSize)
+{
+    ThreadSafeMemoryWrite(Memory, DstOffset, Src, SrcOffset, WriteSize);
+}
+
+void PlatformSafeMemoryRelease(safe_memory_t *Memory)
+{
+    ThreadSafeMemoryFree(*Memory);
+    pfree(&PermanantMemory, *Memory);
+    *Memory = NULL;
+}
+
 u64 PlatformGetWallClock()
 {
     LARGE_INTEGER Result;
@@ -1191,6 +1218,9 @@ void PlatformGetClientWindowDimensions(u32 *Width, u32 *Height)
     *Height = rect.bottom - rect.top;
 }
 
+
+
+#if 0
 struct thread_storage
 {
     game_code    *GameCode;
@@ -1220,8 +1250,8 @@ MyWorkCallback(PTP_CALLBACK_INSTANCE Instance,
 
 void CreateRenderJobs(camera* Camera, game_code *GameCode)
 {
-    u32 BlockPixelWidth  = Renderer->TextureWidth / 5;
-    u32 BlockPixelHeight = Renderer->TextureHeight / 5;
+    u32 BlockPixelWidth  = Renderer->TextureWidth / 6;
+    u32 BlockPixelHeight = Renderer->TextureHeight / 6;
     
     u32 BlockWidth  = Renderer->TextureWidth / BlockPixelWidth;
     if (Renderer->TextureWidth % BlockPixelWidth != 0) BlockWidth++;
@@ -1279,6 +1309,146 @@ void CreateRenderJobs(camera* Camera, game_code *GameCode)
     for (u32 i = 0; i < BlockCount; ++i) Work[i] = CreateThreadpoolWork(&MyWorkCallback, &Storage[i], NULL);
     for (u32 i = 0; i < BlockCount; ++i) SubmitThreadpoolWork(Work[i]);
 }
+#endif
+
+void CreateRenderJobs(camera* Camera)
+{
+    u32 BlockPixelWidth  = 100;
+    u32 BlockPixelHeight = 100;
+    
+    u32 BlockWidth  = Renderer->TextureWidth / BlockPixelWidth;
+    if (Renderer->TextureWidth % BlockPixelWidth != 0) BlockWidth++;
+    
+    u32 BlockHeight = Renderer->TextureHeight / BlockPixelHeight;
+    if (Renderer->TextureHeight % BlockPixelHeight != 0) BlockHeight++;
+    
+    u32 BlockCount = BlockWidth * BlockHeight;
+    
+    i32 StartXCoord = Renderer->TextureWidth - BlockPixelWidth;
+    i32 StartYCoord = Renderer->TextureHeight - BlockPixelHeight;
+    for (i32 j = 0; j < BlockHeight; ++j)
+    {
+        for (u32 i = 0; i < BlockWidth; ++i)
+        {
+            thread_job Job = {0};
+            Job.Camera = Camera;
+            Job.AssetRegistry = &AssetRegistry;
+            
+            u32 StartXPixel = i * BlockPixelWidth;
+            u32 StartYPixel = j * BlockPixelHeight;
+            
+            // Remap the Y pixel
+            i32 RemappingY = StartYCoord - (j * BlockPixelHeight);
+            RemappingY = (RemappingY < 0) ? 0 : RemappingY;
+            
+            Job.ImageOffset   = (RemappingY * Renderer->TextureWidth) + StartXPixel;
+            Job.ImageWidth    = Renderer->TextureWidth;
+            Job.ImageHeight   = Renderer->TextureHeight;
+            Job.PixelXOffset  = StartXPixel;
+            Job.PixelYOffset  = StartYPixel;
+            Job.ScanWidth = (StartXPixel + BlockPixelWidth > Renderer->TextureWidth)
+                ? (Renderer->TextureWidth - StartXPixel) : BlockPixelWidth;
+            Job.ScanHeight = (StartYPixel + BlockPixelHeight > Renderer->TextureHeight)
+                ? (Renderer->TextureHeight - StartYPixel) : BlockPixelHeight;
+            
+            ThreadManagerAddJob(&ThreadManager, Job);
+        }
+    }
+}
+
+file_internal void MakeSphere(asset_registry *Registry, vec3 Origin, r32 Radius,  material Material)
+{
+    sphere_create_info Result = {};
+    
+    Result.Origin = Origin;
+    Result.Radius = Radius;
+    Result.Material = Material;
+    
+    CreateAsset(Registry, Asset_Sphere, &Result);
+}
+
+file_internal material MakeLambertian(vec3 Albedo)
+{
+    material Result = {};
+    
+    Result.Type = Material_Lambertian;
+    Result.Lambertian.Albedo = Albedo;
+    
+    return Result;
+}
+
+file_internal material MakeMetal(vec3 Albedo, r32 Fuzz)
+{
+    material Result = {};
+    
+    Result.Type = Material_Metal;
+    Result.Metal.Albedo = Albedo;
+    Result.Metal.Fuzz = Fuzz;
+    
+    return Result;
+}
+
+file_internal material MakeDielectric(r32 IoR)
+{
+    material Result = {};
+    
+    Result.Type = Material_Dielectric;
+    Result.Dielectric.IndexOfRefraction = IoR;
+    
+    return Result;
+}
+
+file_internal void BuildRandomScene(asset_registry *Registry)
+{
+    material GroundMaterial = MakeLambertian({ 0.5f, 0.5f, 0.5f });
+    MakeSphere(Registry, { 0, -1000, 0 }, 1000, GroundMaterial);
+    
+    for (i32 a = -11; a < 11; ++a)
+    {
+        for (i32 b = -11; b < 11; ++b)
+        {
+            r32 ChooseMat = Random();
+            vec3 Center = { a * 0.9f * Random(), 0.2f, b + 0.9f * Random() };
+            
+            vec3 Point = { 4, 0.2f, 0 };
+            if (mag(Center - Point) > 0.9f)
+            {
+                if (ChooseMat < 0.8f)
+                {
+                    vec3 Albedo = RandomVec3() * RandomVec3();
+                    material Mat = MakeLambertian(Albedo);
+                    MakeSphere(Registry, Center, 0.2f, Mat);
+                }
+                else if (ChooseMat < 0.95f)
+                {
+                    vec3 Albedo = {
+                        0.5f * (1 + Random()),
+                        0.5f * (1 + Random()),
+                        0.5f * (1 + Random())
+                    };
+                    
+                    r32 Fuzz = Random(0.0f, 0.5f);
+                    material Mat = MakeMetal(Albedo, Fuzz);
+                    MakeSphere(Registry, Center, 0.2f, Mat);
+                }
+                else
+                {
+                    material Mat = MakeDielectric(1.5f);
+                    MakeSphere(Registry, Center, 0.2f, Mat);
+                }
+            }
+        }
+    }
+    
+    material Mat1 = MakeDielectric(1.5f);
+    MakeSphere(Registry, { 0, 1, 0 }, 1.0f, Mat1);
+    
+    material Mat2 = MakeLambertian({ 0.4, 0.2, 0.1 });
+    MakeSphere(Registry, { -4, 1, 0 }, 1.0f, Mat2);
+    
+    material Mat3 = MakeMetal({ 0.7, 0.6, 0.5 }, 0.0f);
+    MakeSphere(Registry, { 4, 1, 0 }, 1.0f, Mat3);
+}
 
 INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow)
 {
@@ -1305,8 +1475,8 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     wc.lpszClassName = CLASS_NAME;
     RegisterClass(&wc);
     
-    u32 ClientWindowWidth  = 1080;
-    u32 ClientWindowHeight = 720;
+    u32 ClientWindowWidth  = 1920;
+    u32 ClientWindowHeight = 1080;
     
     ClientWindow = CreateWindowEx(0,
                                   CLASS_NAME,
@@ -1355,7 +1525,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
                  ClientWindowHeight,
                  60);
     
-    AssetRegistryInit(&AssetRegistry, Renderer, &PermanantMemory, 100);
+    AssetRegistryInit(&AssetRegistry, Renderer, &PermanantMemory, 1000);
     
     //~ Initialize ImGui stuff
     ImGuiContext *ctx = ImGui::CreateContext();
@@ -1374,23 +1544,119 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     mstring GameDllCopy = Win32NormalizePath("example.dll");
     Win32LoadGameCode(&GameCode, GetStr(&GameDllCopy));
     
+    vec3 CameraOrigin = { 13, 2, 3 };
+    vec3 LookAt = { 0, 0, 0 };
+    
     camera Camera;
-    CameraInit(&Camera, Renderer->TextureWidth, Renderer->TextureHeight);
     
     //~ Create assets for the raytracer
+    if (false)
     {
+        CameraInit(&Camera,
+                   CameraOrigin,
+                   LookAt,
+                   { 0, 1, 0 },
+                   20,
+                   (r32)Renderer->TextureWidth / (r32)Renderer->TextureHeight,
+                   0.1f,
+                   10.0f);
+        
         sphere_create_info s1 = {};
         s1.Origin = { 0.0f, 0.0f, -1.0f };
         s1.Radius = 0.5f;
+        s1.Material.Type = Material_Lambertian;
+        s1.Material.Lambertian = { { 0.1f, 0.2f, 0.5f } };
         CreateAsset(&AssetRegistry, Asset_Sphere, &s1);
         
         sphere_create_info s2 = {};
         s2.Origin = { 0.0f, -100.5f, -1.0f };
         s2.Radius = 100.0f;
+        s2.Material.Type = Material_Lambertian;
+        s2.Material.Lambertian = { { 0.8f, 0.8f, 0.0f } };
+        CreateAsset(&AssetRegistry, Asset_Sphere, &s2);
+        
+        sphere_create_info s3 = {};
+        s3.Origin = { 1, 0, -1 };
+        s3.Radius = 0.5f;
+        s3.Material.Type = Material_Metal;
+        s3.Material.Metal = { { 0.8f, 0.6f, 0.2f }, 0.3f };
+        CreateAsset(&AssetRegistry, Asset_Sphere, &s3);
+        
+        sphere_create_info s4 = {};
+        s4.Origin = { -1, 0, -1 };
+        s4.Radius = 0.5f;
+        s4.Material.Type = Material_Dielectric;
+        s4.Material.Metal = { 1.5f };
+        CreateAsset(&AssetRegistry, Asset_Sphere, &s4);
+        
+        sphere_create_info s5 = {};
+        s5.Origin = { -1, 0, -1 };
+        s5.Radius = -0.45f;
+        s5.Material.Type = Material_Dielectric;
+        s5.Material.Metal = { 1.5f };
+        CreateAsset(&AssetRegistry, Asset_Sphere, &s5);
+    }
+    else if (false)
+    {
+        CameraInit(&Camera,
+                   CameraOrigin,
+                   LookAt,
+                   { 0, 1, 0 },
+                   20,
+                   (r32)Renderer->TextureWidth / (r32)Renderer->TextureHeight,
+                   0.1f,
+                   10.0f);
+        
+        r32 R = cosf(PI / 4.0f);
+        sphere_create_info s1 = {};
+        s1.Origin = { -R, 0.0f, -1.0f };
+        s1.Radius = R;
+        s1.Material.Type = Material_Lambertian;
+        s1.Material.Lambertian = { { 0.0f, 0.0f, 1.0f } };
+        CreateAsset(&AssetRegistry, Asset_Sphere, &s1);
+        
+        sphere_create_info s2 = {};
+        s2.Origin = { R, 0.0f, -1.0f };
+        s2.Radius = R;
+        s2.Material.Type = Material_Lambertian;
+        s2.Material.Lambertian = { { 1.0f, 0.0f, 0.0f } };
         CreateAsset(&AssetRegistry, Asset_Sphere, &s2);
     }
+    else if (true)
+    {
+        CameraInit(&Camera,
+                   CameraOrigin,
+                   LookAt,
+                   { 0, 1, 0 },
+                   20,
+                   (r32)Renderer->TextureWidth / (r32)Renderer->TextureHeight,
+                   0.1f,
+                   10.0f);
+        
+        BuildRandomScene(&AssetRegistry);
+    }
     
-    CreateRenderJobs(&Camera, &GameCode);
+    //CreateRenderJobs(&Camera, &GameCode);
+    {
+        SYSTEM_INFO SystemInfo;
+        GetSystemInfo(&SystemInfo);
+        
+        ThreadManagerInit(&ThreadManager,
+                          &PermanantMemory,
+                          SystemInfo.dwNumberOfProcessors - 1,
+                          &TaggedHeap,
+                          GameCode.GameStageEntry,
+                          Renderer->Texture,
+                          Renderer->TextureWidth,
+                          Renderer->TextureHeight);
+        
+        // Add about 500 jobs...
+        // the contents don't actually matter...
+        //thread_job Jobs[500] = {0};
+        //for (u32 i = 0; i < 500; ++i)
+        //ThreadManagerAddJob(&ThreadManager, Jobs[i]);
+        CreateRenderJobs(&Camera);
+    }
     
     //~ Render Loop
     ShowWindow(ClientWindow, nCmdShow);
@@ -1406,7 +1672,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         frame_params FrameParams = {};
         FrameParamsInit(&FrameParams, FrameCount++, PlatformGetWallClock(), &PermanantMemory, Renderer,
                         &ResourceRegistry, &AssetRegistry);
-        FrameParams.TextureBackbuffer = Renderer->TextureBackbuffer;
+        //FrameParams.TextureBackbuffer = Renderer->TextureBackbuffer;
         FrameParams.TextureWidth = Renderer->TextureWidth;
         FrameParams.TextureHeight = Renderer->TextureHeight;
         
@@ -1448,7 +1714,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         FrameParams.GameStageEndTime     = PlatformGetWallClock();
         FrameParams.RenderStageStartTime = FrameParams.GameStageEndTime;
         
-        RendererEntry(Renderer, &FrameParams);
+        RendererEntry(Renderer, &ResourceRegistry, &FrameParams);
         
         FrameParamsFree(&FrameParams, &PermanantMemory);
         
@@ -1480,6 +1746,8 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         
         LastFrameTime = PlatformGetWallClock();
     }
+    
+    ThreadManagerFree(&ThreadManager, &PermanantMemory, &TaggedHeap);
     
     MstringFree(&GameDllCopy);
     

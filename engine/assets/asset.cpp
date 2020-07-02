@@ -51,8 +51,9 @@ asset_id CreateAsset(asset_registry *Registry, asset_type Type, void *CreateInfo
             sphere_create_info *Info = (sphere_create_info*)CreateInfo;
             
             asset_sphere Sphere = {};
-            Sphere.Origin = Info->Origin;
-            Sphere.Radius = Info->Radius;
+            Sphere.Origin   = Info->Origin;
+            Sphere.Radius   = Info->Radius;
+            Sphere.Material = Info->Material;
             
             // Active the Id
             Result.Index  = Registry->AssetsCount++;
@@ -75,25 +76,25 @@ asset_id CreateAsset(asset_registry *Registry, asset_type Type, void *CreateInfo
     return Result;
 }
 
-void CopyAssets(asset_t *Assets, u32 *AssetsCount, asset_registry *AssetRegistry, free_allocator *Allocator)
+void CopyAssets(asset_t *Assets, u32 *AssetsCount, asset_registry *AssetRegistry, tag_block_t Block)
 {
-    // TODO(Dustin): Account for hoels in the registry
-    
-    asset_t AssetsCopy = palloc<asset>(Allocator, AssetRegistry->AssetsCount);
-    
-    if (AssetsCopy)
+    if (AssetRegistry->AssetsCount > 0)
     {
-        for (u32 i = 0; i < AssetRegistry->AssetsCount; ++i)
+        asset_t AssetsCopy = (asset_t)TaggedHeapBlockAlloc(Block, sizeof(asset) * AssetRegistry->AssetsCount);
+        if (AssetsCopy)
         {
-            AssetsCopy[i] = *AssetRegistry->Assets[i];
+            for (u32 i = 0; i < AssetRegistry->AssetsCount; ++i)
+            {
+                AssetsCopy[i] = *AssetRegistry->Assets[i];
+            }
+            
+            *AssetsCount = AssetRegistry->AssetsCount;
+            *Assets = AssetsCopy;
         }
-        
-        *AssetsCount = AssetRegistry->AssetsCount;
-        *Assets = AssetsCopy;
-    }
-    else
-    {
-        mprinte("Unable to allocate from the heap block!\n");
+        else
+        {
+            mprinte("Unable to allocate from the heap block!\n");
+        }
     }
 }
 

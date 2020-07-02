@@ -5,6 +5,40 @@ struct resource_id;
 struct resource_registry;
 typedef struct asset* asset_t;
 
+struct lambertian
+{
+    vec3 Albedo;
+};
+
+struct metal
+{
+    vec3 Albedo;
+    r32  Fuzz;
+};
+
+struct dielectric
+{
+    r32 IndexOfRefraction;
+};
+
+enum material_type
+{
+    Material_Lambertian,
+    Material_Metal,
+    Material_Dielectric,
+};
+
+struct material
+{
+    material_type Type;
+    
+    union
+    {
+        lambertian Lambertian;
+        metal      Metal;
+        dielectric Dielectric;
+    };
+};
 
 struct asset_id
 {
@@ -21,14 +55,17 @@ enum asset_type
 
 struct sphere_create_info
 {
-    vec3 Origin;
-    r32  Radius;
+    vec3     Origin;
+    r32      Radius;
+    material Material;
 };
 
 struct asset_sphere
 {
     vec3 Origin;
     r32  Radius;
+    
+    material Material;
 };
 
 struct asset
@@ -63,7 +100,7 @@ void AssetRegistryInit(asset_registry *Registry, renderer_t Renderer, free_alloc
 void AssetRegistryFree(asset_registry *Registry, free_allocator *GlobalMemoryAllocator);
 
 asset_id CreateAsset(asset_registry *Registry, asset_type Type, void *CreateInfo);
-void CopyAssets(asset_t *Assets, u32 *AssetsCount, asset_registry *AssetRegistry, free_allocator *Allocator);
+void CopyAssets(asset_t *Assets, u32 *AssetsCount, asset_registry *AssetRegistry, tag_block_t Block);
 
 inline bool IsValidAsset(asset_t Assets, asset_id Id);
 

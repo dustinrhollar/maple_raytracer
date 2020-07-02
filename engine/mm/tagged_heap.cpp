@@ -35,10 +35,10 @@ file_internal void BitListMove(bit_list *Dst, bit_list *Src)
 file_internal void ClearBitListWithMask(bit_list *Source, bit_list *Mask)
 {
     assert(Source->NumInts == Mask->NumInts);
-
+    
     for (u8 Bitset = 0; Bitset < Mask->NumInts; ++Bitset)
         BITMASK_CLEAR(Source->Bits[Bitset], Mask->Bits[Bitset]);
-
+    
 }
 
 void TaggedHeapInit(tagged_heap *TaggedHeap, free_allocator *Allocator, u64 AllocationSize, u32 BlockSize, u32 MaxActiveTags)
@@ -46,20 +46,20 @@ void TaggedHeapInit(tagged_heap *TaggedHeap, free_allocator *Allocator, u64 Allo
     TaggedHeap->Start     = (char*)FreeListAllocatorAlloc(Allocator, AllocationSize);
     TaggedHeap->Size      = AllocationSize;
     TaggedHeap->BlockSize = BlockSize;
-
+    
     u64 NumBlocks = AllocationSize / BlockSize;
-
+    
     // Init the bit list of block allocations...The number of required bit is NumBlocks
     u32 NumInts = NumBlocks / 64;
     if ((NumBlocks % 64) != 0) NumInts++;
     assert(NumInts < 255 && "Tagged heap bit list requires more than 255 ints!");
-
+    
     BitListInit(&TaggedHeap->AllocationList, Allocator, (u8)(NumInts));
-
+    
     TaggedHeap->MaxActiveTags = MaxActiveTags;
     TaggedHeap->ActiveTagsCount = 0;
     TaggedHeap->ActiveTags = (heap_tag_t*)FreeListAllocatorAlloc(Allocator, sizeof(tagged_heap_tag) * TaggedHeap->MaxActiveTags);
-
+    
     for (u32 i = 0; i < TaggedHeap->MaxActiveTags; ++i)
     {
         BitListInit(&TaggedHeap->ActiveTags[i].AllocationsMask, Allocator, (u8)NumInts);
@@ -70,13 +70,13 @@ void TaggedHeapFree(tagged_heap *TaggedHeap, free_allocator *Allocator)
 {
     FreeListAllocatorAllocFree(Allocator, TaggedHeap->Start);
     BitListFree(&TaggedHeap->AllocationList, Allocator);
-
+    
     for (u32 i = 0; i < TaggedHeap->MaxActiveTags; ++i)
     {
         BitListFree(&TaggedHeap->ActiveTags[i].AllocationsMask, Allocator);
     }
     FreeListAllocatorAllocFree(Allocator, TaggedHeap->ActiveTags);
-
+    
     TaggedHeap->Start           = NULL;
     TaggedHeap->ActiveTags      = NULL;
     TaggedHeap->Size            = 0;
@@ -96,16 +96,16 @@ bool CompareTags(tag_id_t Lhs, tag_id_t Rhs)
 tagged_heap_block TaggedHeapRequestAllocation(tagged_heap *TaggedHeap, tag_id_t Tag)
 {
     tagged_heap_block Result = {0};
-
+    
     // Retrieve the Tag Node in the heap
     // NOTE(Dustin): Currently requires 2 tree traversals in worst case...
     // Maybe try have Insert return an existing node if the tag already exists
     // in the tree...
     //binary_tag_tree_node *TaggedNode = BinaryTagTreeFind(TaggedHeap->Root, Tag);
-
+    
     bool TagFound = false;
     heap_tag_t *HeapTag;
-
+    
     // Check if the tag currently exists in the heap
     for (u32 i = 0; i < TaggedHeap->ActiveTagsCount; ++i)
     {
@@ -116,7 +116,7 @@ tagged_heap_block TaggedHeapRequestAllocation(tagged_heap *TaggedHeap, tag_id_t 
             break;
         }
     }
-
+    
     if (!TagFound)
     {
         if (TaggedHeap->ActiveTagsCount + 1 > TaggedHeap->MaxActiveTags)
@@ -125,13 +125,13 @@ tagged_heap_block TaggedHeapRequestAllocation(tagged_heap *TaggedHeap, tag_id_t 
             printf("ERROR: No more available tagged heaps! Free an existing tag to allocate more!\n");
             return Result;
         }
-
+        
         HeapTag = &TaggedHeap->ActiveTags[TaggedHeap->ActiveTagsCount];
         HeapTag->Tag = Tag;
-
+        
         TaggedHeap->ActiveTagsCount++;
     }
-
+    
     u64 Bitset;
     for (u32 i = 0; i < TaggedHeap->AllocationList.NumInts; ++i)
     {
@@ -143,7 +143,7 @@ tagged_heap_block TaggedHeapRequestAllocation(tagged_heap *TaggedHeap, tag_id_t 
         // The found idx is the index of the block we want to retrieve
         // for the allocation.
         Bitset = ~TaggedHeap->AllocationList.Bits[i];
-
+        
         // Ctz() is undefined when the number == 0
         // If the nagated bitset == 0, then there are
         // no available allocations in the block.
@@ -156,25 +156,25 @@ tagged_heap_block TaggedHeapRequestAllocation(tagged_heap *TaggedHeap, tag_id_t 
         else
             continue;
         Idx = i * 64 + Bit;
-
+        
         // Init the allocation info
         char *BlockStart = (char*)TaggedHeap->Start + Idx * TaggedHeap->BlockSize;
-
+        
         Result.Start      = BlockStart;
         Result.End        = BlockStart + TaggedHeap->BlockSize;
         Result.Brkp       = Result.Start;
         Result.TaggedHeap = TaggedHeap;
-
+        
         // Mark the allocation in the TaggedHeap
         BIT_TOGGLE_1(TaggedHeap->AllocationList.Bits[i], Bit);
         BIT_TOGGLE_1(HeapTag->AllocationsMask.Bits[i], Bit);
-
+        
         break;
     }
-
+    
     if (Result.Start == NULL)
         printf("ERROR: Tagged Heap could not find an available block to allocate!\n");
-
+    
     return Result;
 }
 
@@ -188,12 +188,12 @@ void TaggedHeapReleaseAllocation(tagged_heap *TaggedHeap, tag_id_t Tag)
         if (CompareTags(Tag, TaggedHeap->ActiveTags[i].Tag))
         {
             ClearBitListWithMask(&TaggedHeap->AllocationList, &TaggedHeap->ActiveTags[i].AllocationsMask);
-
+            
             // TODO Remove from the list
             BitListMove(&TaggedHeap->ActiveTags[i].AllocationsMask,
                         &TaggedHeap->ActiveTags[TaggedHeap->ActiveTagsCount-1].AllocationsMask);
             BitListReset(&TaggedHeap->ActiveTags[TaggedHeap->ActiveTagsCount-1].AllocationsMask);
-
+            
             TaggedHeap->ActiveTagsCount--;
             break;
         }
@@ -206,18 +206,18 @@ void TaggedHeapReleaseAllocation(tagged_heap *TaggedHeap, tag_id_t Tag)
 void* TaggedHeapBlockAlloc(tag_block_t Block, u64 Size)
 {
     void *Result = NULL;
-
+    
     // Align Size to be on an 8byte boundary. Yea, this is hardcoded,
     // but I dont care about supporting 32bit machines
     Size = (Size + 7) & ~(7); // 0b1000 = ~7
     assert(Size % 8 == 0 && "Hardcoded alignment failed in Tagged Heap Block Alloc!");
-
+    
     if (Block->Brkp + Size <= Block->End)
     {
         Result = Block->Brkp;
         Block->Brkp += Size;
     }
-
+    
     return Result;
 }
 

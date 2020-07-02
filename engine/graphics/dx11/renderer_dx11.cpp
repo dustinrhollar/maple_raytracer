@@ -49,16 +49,19 @@ void RendererInit(renderer_t *Renderer, free_allocator *Allocator, resource_regi
     // Uplload default texture
     u32 BytesPerPixel = sizeof(r32) * 3;
     pRenderer->TextureSize = pRenderer->TextureWidth * pRenderer->TextureHeight * BytesPerPixel;
-    pRenderer->TextureBackbuffer = FreeListAllocatorAlloc(Allocator, pRenderer->TextureSize);
-    memset(pRenderer->TextureBackbuffer, 0, pRenderer->TextureSize);
+    pRenderer->NotSafeMemory = FreeListAllocatorAlloc(Allocator, pRenderer->TextureSize);
+    memset(pRenderer->NotSafeMemory, 0, pRenderer->TextureSize);
+    
+    PlatformSafeMemoryAllocation(&pRenderer->Texture, pRenderer->NotSafeMemory, pRenderer->TextureSize);
     
     *Renderer = pRenderer;
 }
 
 void RendererShutdown(renderer_t *Renderer, free_allocator *Allocator)
 {
-    FreeListAllocatorAllocFree(Allocator, (*Renderer)->TextureBackbuffer);
-    (*Renderer)->TextureBackbuffer = NULL;
+    PlatformSafeMemoryRelease(&(*Renderer)->Texture);
+    FreeListAllocatorAllocFree(Allocator, (*Renderer)->NotSafeMemory);
+    (*Renderer)->NotSafeMemory = NULL;
     
     FreeListAllocatorAllocFree(Allocator, *Renderer);
     *Renderer = NULL;
@@ -103,12 +106,10 @@ void RendererUi()
     
 }
 
-file_internal void UpdateTextureResource(renderer_t Renderer, frame_params *FrameParams)
+file_internal void UpdateTextureResource(renderer_t Renderer, resource_registry *Registry)
 {
-    //mprint("Updating texture\n");
-    
-    ID3D11DeviceContext *DeviceContext = FrameParams->Resources[Renderer->Device.Index].Device.Context;
-    ID3D11Texture2D     *Texture = FrameParams->Resources[Renderer->RaytracedTexture.Index].Texture.Handle;
+    ID3D11DeviceContext *DeviceContext = Registry->Resources[Renderer->Device.Index]->Device.Context;
+    ID3D11Texture2D     *Texture = Registry->Resources[Renderer->RaytracedTexture.Index]->Texture.Handle;
     
     D3D11_MAPPED_SUBRESOURCE TextureResource;
     HRESULT hr = DeviceContext->Map(Texture, 0, D3D11_MAP_WRITE_DISCARD, 0, &TextureResource);
@@ -120,26 +121,24 @@ file_internal void UpdateTextureResource(renderer_t Renderer, frame_params *Fram
     else
     {
         void* Backbuffer = TextureResource.pData;
-        memcpy(Backbuffer, Renderer->TextureBackbuffer, TextureResource.DepthPitch);
+        PlaformSafeMemoryCopy(Renderer->Texture, 0, Backbuffer, 0, TextureResource.DepthPitch);
         
         DeviceContext->Unmap(Texture, 0);
     }
-    
-    //mprint("Done updating texture\n");
 }
 
-void RendererEntry(renderer_t Renderer, frame_params *FrameParams)
+void RendererEntry(renderer_t Renderer, resource_registry *Registry, frame_params *FrameParams)
 {
     ID3D11DeviceContext *DeviceContext =
-        FrameParams->Resources[Renderer->Device.Index].Device.Context;
+        Registry->Resources[Renderer->Device.Index]->Device.Context;
     IDXGISwapChain *Swapchain =
-        FrameParams->Resources[Renderer->Device.Index].Device.Swapchain;
+        Registry->Resources[Renderer->Device.Index]->Device.Swapchain;
     ID3D11RenderTargetView *RenderTarget =
-        FrameParams->Resources[Renderer->RenderTarget.Index].RenderTarget.Handle;
+        Registry->Resources[Renderer->RenderTarget.Index]->RenderTarget.Handle;
     
-    ID3D11InputLayout  *Layout       = FrameParams->Resources[Renderer->Pipeline.Index].Pipeline.Layout;
-    ID3D11VertexShader *VertexShader = FrameParams->Resources[Renderer->Pipeline.Index].Pipeline.VertexShader;
-    ID3D11PixelShader  *PixelShader  = FrameParams->Resources[Renderer->Pipeline.Index].Pipeline.PixelShader;
+    ID3D11InputLayout  *Layout       = Registry->Resources[Renderer->Pipeline.Index]->Pipeline.Layout;
+    ID3D11VertexShader *VertexShader = Registry->Resources[Renderer->Pipeline.Index]->Pipeline.VertexShader;
+    ID3D11PixelShader  *PixelShader  = Registry->Resources[Renderer->Pipeline.Index]->Pipeline.PixelShader;
     
     DeviceContext->OMSetRenderTargets(1, &RenderTarget, NULL);
     
@@ -162,7 +161,7 @@ void RendererEntry(renderer_t Renderer, frame_params *FrameParams)
     DeviceContext->VSSetShader(VertexShader, 0, 0);
     DeviceContext->PSSetShader(PixelShader, 0, 0);
     
-    resource_texture RayTracedTexture = FrameParams->Resources[Renderer->RaytracedTexture.Index].Texture;
+    resource_texture RayTracedTexture = Registry->Resources[Renderer->RaytracedTexture.Index]->Texture;
     DeviceContext->PSSetShaderResources(0, 1, &RayTracedTexture.View);
     DeviceContext->PSSetSamplers(0, 1, &RayTracedTexture.Sampler);
     
@@ -172,7 +171,6 @@ void RendererEntry(renderer_t Renderer, frame_params *FrameParams)
     //DeviceContext->DrawIndexed(Renderer->IndexCount, 0, 0);
     DeviceContext->Draw(4, 0);
     
-    // Defer updates to the next frame
     for (u32 i = 0; i < FrameParams->RenderCommandsCount; ++i)
     {
         render_command RenderCmd = FrameParams->RenderCommands[i];
@@ -181,7 +179,7 @@ void RendererEntry(renderer_t Renderer, frame_params *FrameParams)
         {
             case RenderCmd_CopyTexture:
             {
-                UpdateTextureResource(Renderer, FrameParams);
+                UpdateTextureResource(Renderer, Registry);
             } break;
             
             case RenderCmd_DrawDevUi:

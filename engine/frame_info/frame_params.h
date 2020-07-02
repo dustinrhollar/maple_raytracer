@@ -15,17 +15,6 @@ struct frame_params
     u64             RenderStageStartTime;
     u64             RenderStageEndTime;
     
-    //~ Per-Frame Linear Allocator
-    tag_id_t          FrameHeapTag;
-    tagged_heap_block FrameHeap;
-    
-    //~ Renderer
-    renderer_t      Renderer;
-    
-    //~ Resources
-    resource_t      Resources;
-    u32             ResourcesCount;
-    
     camera         *Camera;
     
     //~ Assets

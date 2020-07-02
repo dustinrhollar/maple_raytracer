@@ -1,6 +1,8 @@
 #ifndef ENGINE_UTILS_VECTOR_MATH_H
 #define ENGINE_UTILS_VECTOR_MATH_H
 
+#define PI 3.1415926535897932385
+
 /*
 
 User API:
@@ -76,6 +78,22 @@ Quaternion norm(const Quaternion& q);
 // OTHER USEFUL GRAPHICS FUNCTIONS
 Mat4 LookAt(vec3 right, vec3 up, vec3 forward, vec3 position)
 Mat4 PerspectiveProjection(float fov, float aspect_ratio, float near, float far);
+
+
+
+
+inline r32 Random();
+inline r32 Random(r32 Min, r32 Max);
+inline r32 Clamp(r32 Val, r32 Min, r32 Max);
+inline vec3 RandomVec3();
+vec3 RandomInUnitSphere();
+vec3 RandomInHemisphere(vec3 Normal);
+vec3 RandomUnitVector();
+vec3 RandomInUnitDisc();
+vec3 Reflect(vec3 Vec, vec3 Normal);
+vec3 Refract(vec3 Uv, vec3 N, r32 Ratio);
+r32 Schlick(r32 Cosine, r32 RefIdx);
+
 
 */
 
@@ -641,6 +659,19 @@ mat4 LookAt(vec3 eye, vec3 center, vec3 up);
 mat4 PerspectiveProjection(float fov, float aspect_ratio, float near, float far);
 
 
+inline r32 Random();
+inline r32 Random(r32 Min, r32 Max);
+inline r32 Clamp(r32 Val, r32 Min, r32 Max);
+inline vec3 RandomVec3();
+vec3 RandomInUnitSphere();
+vec3 RandomInHemisphere(vec3 Normal);
+vec3 RandomUnitVector();
+vec3 RandomInUnitDisc();
+vec3 Reflect(vec3 Vec, vec3 Normal);
+vec3 Refract(vec3 Uv, vec3 N, r32 Ratio);
+r32 Schlick(r32 Cosine, r32 RefIdx);
+
+
 #endif // JENGINE_UTILS_VECTOR_MATH_H
 
 #if defined(MAPLE_VECTOR_MATH_IMPLEMENTATION)
@@ -669,13 +700,13 @@ inline vec2 operator-(vec2 left, vec2 const& right)
 
 inline vec2 operator*(vec2 left, vec2 const& right)
 {
-    left -= right;
+    left *= right;
     return left;
 }
 
 inline vec2 operator/(vec2 left, vec2 const& right)
 {
-    left += right;
+    left /= right;
     return left;
 }
 
@@ -706,13 +737,13 @@ inline vec3 operator-(vec3 left, vec3 const& right)
 
 inline vec3 operator*(vec3 left, vec3 const& right)
 {
-    left -= right;
+    left *= right;
     return left;
 }
 
 inline vec3 operator/(vec3 left, vec3 const& right)
 {
-    left += right;
+    left /= right;
     return left;
 }
 
@@ -762,13 +793,13 @@ inline vec4 operator-(vec4 left, vec4 const& right)
 
 inline vec4 operator*(vec4 left, vec4 const& right)
 {
-    left -= right;
+    left *= right;
     return left;
 }
 
 inline vec4 operator/(vec4 left, vec4 const& right)
 {
-    left += right;
+    left /= right;
     return left;
 }
 
@@ -1370,5 +1401,106 @@ mat4 PerspectiveProjection(float fov, float aspect_ratio, float near_plane, floa
     
     return result;
 }
+
+inline r32 Random()
+{
+    return rand() / (RAND_MAX + 1.0f);
+}
+
+inline r32 Random(r32 Min, r32 Max)
+{
+    return Min + (Max - Min) * Random();
+}
+
+inline r32 Clamp(r32 Val, r32 Min, r32 Max)
+{
+    if (Val < Min) return Min;
+    if (Val > Max) return Max;
+    return Val;
+}
+
+inline vec3 RandomVec3()
+{
+    vec3 Result;
+    
+    Result.x = Random();
+    Result.y = Random();
+    Result.z = Random();
+    
+    return Result;
+}
+
+inline vec3 RandomVec3(r32 Min, r32 Max)
+{
+    vec3 Result;
+    
+    Result.x = Random(Min, Max);
+    Result.y = Random(Min, Max);
+    Result.z = Random(Min, Max);
+    
+    return Result;
+}
+
+vec3 RandomInUnitSphere()
+{
+    while (true)
+    {
+        vec3 Ran = RandomVec3(-1.0f, 1.0f);
+        if (mag_sq(Ran) >= 1.0f) continue;
+        return Ran;
+    }
+}
+
+vec3 RandomInHemisphere(vec3 Normal)
+{
+    vec3 RandomInSphere = RandomInUnitSphere();
+    if (dot(RandomInSphere, Normal) > 0.0f)
+    {
+        return RandomInSphere;
+    }
+    else
+    {
+        return -1.0f * RandomInSphere;
+    }
+}
+
+vec3 RandomUnitVector()
+{
+    r32 A = Random(0, 2 * PI);
+    r32 Z = Random(-1, 1);
+    r32 R = sqrt(1 - Z * Z);
+    return { R * cosf(A), R * sinf(A), Z};
+}
+
+vec3 RandomInUnitDisc()
+{
+    while (true)
+    {
+        vec3 Ran = { Random(-1, 1), Random(-1, 1), 0};
+        if (mag_sq(Ran) >= 1.0f) continue;
+        return Ran;
+    }
+}
+
+vec3 Reflect(vec3 Vec, vec3 Normal)
+{
+    return Vec - 2 * dot(Vec, Normal) * Normal;
+}
+
+vec3 Refract(vec3 Uv, vec3 N, r32 Ratio)
+{
+    r32 CosTheta = dot(-1 * Uv, N);
+    vec3 RoutParallel = Ratio * (Uv + CosTheta * N);
+    vec3 RoutPerp = -sqrt(1.0f - mag_sq(RoutParallel)) * N;
+    return RoutParallel + RoutPerp;
+}
+
+r32 Schlick(r32 Cosine, r32 RefIdx)
+{
+    r32 R0 = (1 - RefIdx) / (1 + RefIdx);
+    R0 = R0 * R0;
+    return R0 + (1 - R0) * pow((1 - Cosine), 5);
+}
+
 
 #endif //MAPLE_VECTOR_MATH_IMPLEMENTATION
