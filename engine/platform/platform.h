@@ -32,6 +32,7 @@ void PlatformReleaseMemory(void *Ptr, u64 Size);
 void PlatformSafeMemoryAllocation(safe_memory_t *Memory, void *Ptr, u64 Size);
 void PlaformSafeMemoryCopy(safe_memory_t Memory, u32 SrcOffset, void *Dst, u32 DstOffset, u64 CopySize);
 void PlaformSafeMemoryWrite(safe_memory_t Memory, u32 DstOffset, void *Src, u32 SrcOffset, u64 WriteSize);
+void PlatformSafeMemoryMemset(safe_memory_t Memory, u32 DstOffset, u32 Value, u32 WriteSize);
 void PlatformSafeMemoryRelease(safe_memory_t *Memory);
 
 // Log/Printing

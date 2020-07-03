@@ -88,11 +88,11 @@ struct file
 
 struct game_code
 {
-    HMODULE Handle;
-    FILETIME DllLastWriteTime;
-    
+    HMODULE           Handle;
+    FILETIME          DllLastWriteTime;
     game_stage_entry *GameStageEntry;
 };
+game_code GameCode;
 
 
 #define MAX_OPEN_FILES 10
@@ -1187,6 +1187,11 @@ void PlaformSafeMemoryWrite(safe_memory_t Memory, u32 DstOffset, void *Src, u32 
     ThreadSafeMemoryWrite(Memory, DstOffset, Src, SrcOffset, WriteSize);
 }
 
+void PlatformSafeMemoryMemset(safe_memory_t Memory, u32 DstOffset, u32 Value, u32 WriteSize)
+{
+    ThreadSafeMemoryMemset(Memory, DstOffset, Value, WriteSize);
+}
+
 void PlatformSafeMemoryRelease(safe_memory_t *Memory)
 {
     ThreadSafeMemoryFree(*Memory);
@@ -1218,104 +1223,8 @@ void PlatformGetClientWindowDimensions(u32 *Width, u32 *Height)
     *Height = rect.bottom - rect.top;
 }
 
-
-
-#if 0
-struct thread_storage
+void CreateRenderJobs(camera* Camera, u32 BlockPixelWidth, u32 BlockPixelHeight)
 {
-    game_code    *GameCode;
-    frame_params *FrameParams;
-};
-
-VOID CALLBACK
-MyWorkCallback(PTP_CALLBACK_INSTANCE Instance,
-               PVOID                 Parameter,
-               PTP_WORK              Work)
-{
-    UNREFERENCED_PARAMETER(Instance);
-    UNREFERENCED_PARAMETER(Work);
-    
-    
-    thread_storage *Storage = (thread_storage*)Parameter;
-    
-    mprinte("Work callback being executed!\n");
-    mprinte("Pixel X Start: %d, Pixel Y Start: %d!\n\n",
-            Storage->FrameParams->PixelXOffset, Storage->FrameParams->PixelYOffset);
-    
-    Storage->GameCode->GameStageEntry(Storage->FrameParams);
-    FrameParamsFree(Storage->FrameParams, &PermanantMemory);
-    
-    mprinte("Work completed.\n");
-}
-
-void CreateRenderJobs(camera* Camera, game_code *GameCode)
-{
-    u32 BlockPixelWidth  = Renderer->TextureWidth / 6;
-    u32 BlockPixelHeight = Renderer->TextureHeight / 6;
-    
-    u32 BlockWidth  = Renderer->TextureWidth / BlockPixelWidth;
-    if (Renderer->TextureWidth % BlockPixelWidth != 0) BlockWidth++;
-    
-    u32 BlockHeight = Renderer->TextureHeight / BlockPixelHeight;
-    if (Renderer->TextureHeight % BlockPixelHeight != 0) BlockHeight++;
-    
-    u32 BlockCount = BlockWidth * BlockHeight;
-    
-    frame_params *ThreadParams = (frame_params*)malloc(BlockCount * sizeof(frame_params));
-    thread_storage *Storage    = (thread_storage*)malloc(BlockCount * sizeof(thread_storage));
-    
-    u32 Idx = 0;
-    i32 StartXCoord = Renderer->TextureWidth - BlockPixelWidth;
-    i32 StartYCoord = Renderer->TextureHeight - BlockPixelHeight;
-    for (i32 j = 0; j < BlockHeight; ++j)
-    {
-        for (u32 i = 0; i < BlockWidth; ++i)
-        {
-            ThreadParams[Idx] = {};
-            FrameParamsInit(&ThreadParams[Idx], 0, 0, &PermanantMemory, Renderer,
-                            &ResourceRegistry, &AssetRegistry);
-            
-            ThreadParams[Idx].Camera = Camera;
-            
-            u32 StartXPixel = i * BlockPixelWidth;
-            u32 StartYPixel = j * BlockPixelHeight;
-            
-            // Remap the Y pixel
-            i32 RemappingY = StartYCoord - (j * BlockPixelHeight);
-            RemappingY = (RemappingY < 0) ? 0 : RemappingY;
-            
-            u32 Offset = (RemappingY * Renderer->TextureWidth) + StartXPixel;
-            
-            ThreadParams[Idx].TextureBackbuffer = (vec3*)Renderer->TextureBackbuffer + Offset;
-            
-            ThreadParams[Idx].TextureWidth  = Renderer->TextureWidth;
-            ThreadParams[Idx].TextureHeight = Renderer->TextureHeight;
-            ThreadParams[Idx].PixelXOffset  = StartXPixel;
-            ThreadParams[Idx].PixelYOffset  = StartYPixel;
-            
-            ThreadParams[Idx].ScanWidth = (StartXPixel + BlockPixelWidth > Renderer->TextureWidth)
-                ? (Renderer->TextureWidth - StartXPixel) : BlockPixelWidth;
-            ThreadParams[Idx].ScanHeight = (StartYPixel + BlockPixelHeight > Renderer->TextureHeight)
-                ? (Renderer->TextureHeight - StartYPixel) : BlockPixelHeight;
-            
-            Storage[Idx].GameCode    = GameCode;
-            Storage[Idx].FrameParams = &ThreadParams[Idx];
-            
-            Idx++;
-        }
-    }
-    
-    PTP_WORK *Work = (PTP_WORK*)malloc(BlockCount * sizeof(PTP_WORK));
-    for (u32 i = 0; i < BlockCount; ++i) Work[i] = CreateThreadpoolWork(&MyWorkCallback, &Storage[i], NULL);
-    for (u32 i = 0; i < BlockCount; ++i) SubmitThreadpoolWork(Work[i]);
-}
-#endif
-
-void CreateRenderJobs(camera* Camera)
-{
-    u32 BlockPixelWidth  = 100;
-    u32 BlockPixelHeight = 100;
-    
     u32 BlockWidth  = Renderer->TextureWidth / BlockPixelWidth;
     if (Renderer->TextureWidth % BlockPixelWidth != 0) BlockWidth++;
     
@@ -1365,6 +1274,24 @@ file_internal void MakeSphere(asset_registry *Registry, vec3 Origin, r32 Radius,
     Result.Material = Material;
     
     CreateAsset(Registry, Asset_Sphere, &Result);
+}
+
+file_internal void MakeDynamicSphere(asset_registry *Registry,
+                                     vec3 Center0, vec3 Center1,
+                                     r32 Time0, r32 Time1,
+                                     r32 Radius,
+                                     material Material)
+{
+    dynamic_sphere_create_info Result = {};
+    
+    Result.Center0 = Center0;
+    Result.Center1 = Center1;
+    Result.Time0 = Time0;
+    Result.Time1 = Time1;
+    Result.Radius = Radius;
+    Result.Material = Material;
+    
+    CreateAsset(Registry, Asset_DynamicSphere, &Result);
 }
 
 file_internal material MakeLambertian(vec3 Albedo)
@@ -1417,7 +1344,11 @@ file_internal void BuildRandomScene(asset_registry *Registry)
                 {
                     vec3 Albedo = RandomVec3() * RandomVec3();
                     material Mat = MakeLambertian(Albedo);
-                    MakeSphere(Registry, Center, 0.2f, Mat);
+                    //MakeSphere(Registry, Center, 0.2f, Mat);
+                    
+                    vec3 RandY = { 0, Random(0, 0.5f), 0 };
+                    vec3 Center2 = Center + RandY;
+                    MakeDynamicSphere(Registry, Center, Center2, 0.0f, 1.0f, 0.2f, Mat);
                 }
                 else if (ChooseMat < 0.95f)
                 {
@@ -1538,29 +1469,41 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     ID3D11DeviceContext* DeviceContext = ResourceRegistry.Resources[DeviceId.Index]->Device.Context;
     MapleDevGuiInit(Device, DeviceContext);
     
-    //~ Load game code
-    game_code GameCode = {};
+    //~ Initialize the Thread Manager
+    {
+        SYSTEM_INFO SystemInfo;
+        GetSystemInfo(&SystemInfo);
+        
+        ThreadManagerInit(&ThreadManager,
+                          &PermanantMemory,
+                          SystemInfo.dwNumberOfProcessors - 1,
+                          &TaggedHeap,
+                          &GameCode.GameStageEntry,
+                          Renderer->Texture,
+                          Renderer->TextureWidth,
+                          Renderer->TextureHeight);
+    }
     
-    mstring GameDllCopy = Win32NormalizePath("example.dll");
-    Win32LoadGameCode(&GameCode, GetStr(&GameDllCopy));
+    //~ Load game code
+    mstring GameDllName = Win32NormalizePath("example.dll");
+    Win32LoadGameCode(&GameCode, GetStr(&GameDllName));
     
     vec3 CameraOrigin = { 13, 2, 3 };
     vec3 LookAt = { 0, 0, 0 };
     
     camera Camera;
+    CameraInit(&Camera,
+               CameraOrigin,
+               LookAt,
+               { 0, 1, 0 },
+               20,
+               (r32)Renderer->TextureWidth / (r32)Renderer->TextureHeight,
+               0.1f,
+               10.0f, 0.0f, 1.0f);
     
     //~ Create assets for the raytracer
     if (false)
     {
-        CameraInit(&Camera,
-                   CameraOrigin,
-                   LookAt,
-                   { 0, 1, 0 },
-                   20,
-                   (r32)Renderer->TextureWidth / (r32)Renderer->TextureHeight,
-                   0.1f,
-                   10.0f);
-        
         sphere_create_info s1 = {};
         s1.Origin = { 0.0f, 0.0f, -1.0f };
         s1.Radius = 0.5f;
@@ -1598,15 +1541,6 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     }
     else if (false)
     {
-        CameraInit(&Camera,
-                   CameraOrigin,
-                   LookAt,
-                   { 0, 1, 0 },
-                   20,
-                   (r32)Renderer->TextureWidth / (r32)Renderer->TextureHeight,
-                   0.1f,
-                   10.0f);
-        
         r32 R = cosf(PI / 4.0f);
         sphere_create_info s1 = {};
         s1.Origin = { -R, 0.0f, -1.0f };
@@ -1624,39 +1558,13 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     }
     else if (true)
     {
-        CameraInit(&Camera,
-                   CameraOrigin,
-                   LookAt,
-                   { 0, 1, 0 },
-                   20,
-                   (r32)Renderer->TextureWidth / (r32)Renderer->TextureHeight,
-                   0.1f,
-                   10.0f);
-        
         BuildRandomScene(&AssetRegistry);
     }
     
-    //CreateRenderJobs(&Camera, &GameCode);
-    {
-        SYSTEM_INFO SystemInfo;
-        GetSystemInfo(&SystemInfo);
-        
-        ThreadManagerInit(&ThreadManager,
-                          &PermanantMemory,
-                          SystemInfo.dwNumberOfProcessors - 1,
-                          &TaggedHeap,
-                          GameCode.GameStageEntry,
-                          Renderer->Texture,
-                          Renderer->TextureWidth,
-                          Renderer->TextureHeight);
-        
-        // Add about 500 jobs...
-        // the contents don't actually matter...
-        //thread_job Jobs[500] = {0};
-        //for (u32 i = 0; i < 500; ++i)
-        //ThreadManagerAddJob(&ThreadManager, Jobs[i]);
-        CreateRenderJobs(&Camera);
-    }
+    u32 BlockPixelWidth  = 100;
+    u32 BlockPixelHeight = 100;
+    
+    CreateRenderJobs(&Camera, BlockPixelWidth, BlockPixelHeight);
     
     //~ Render Loop
     ShowWindow(ClientWindow, nCmdShow);
@@ -1664,6 +1572,8 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     u64 LastFrameTime = PlatformGetWallClock();
     r32 RefreshRate = 60.0f;
     r32 TargetSecondsPerFrame = 1 / RefreshRate;
+    
+    u32 LoadDllCounter = 0;
     
     ClientIsRunning = true;
     MSG msg = {0};
@@ -1676,16 +1586,28 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         FrameParams.TextureWidth = Renderer->TextureWidth;
         FrameParams.TextureHeight = Renderer->TextureHeight;
         
+        // NOTE(Dustin): When check the file time, if there is not a small delay in the check
+        // then the DLL is loaded twice. In order to solve this, rather than checking every frame,
+        // check N times per second.
         // Reload Dll if necessary
-        FILETIME DllWriteTime = Win32GetLastWriteTime(GetStr(&GameDllCopy));
-        if (CompareFileTime(&DllWriteTime, &GameCode.DllLastWriteTime) != 0)
+        FILETIME DllWriteTime = Win32GetLastWriteTime(GetStr(&GameDllName));
+        if (LoadDllCounter++ >= RefreshRate / 3)
         {
-            // TODO(Dustin): Hot reloading is broken with the threading api.
-            // 2 loads always occur, and when the second job dispatch is issued,
-            // a deadlock occurs.
-            Win32UnloadGameCode(&GameCode);
-            Win32LoadGameCode(&GameCode, GetStr(&GameDllCopy));
-            //CreateRenderJobs(&Camera, &GameCode);
+            LoadDllCounter = 0;
+            
+            if (CompareFileTime(&DllWriteTime, &GameCode.DllLastWriteTime) != 0)
+            {
+                ThreadManagerClearJobs(&ThreadManager);
+                ThreadManagerWaitForJobs(&ThreadManager, 0);
+                
+                Win32UnloadGameCode(&GameCode);
+                Win32LoadGameCode(&GameCode, GetStr(&GameDllName));
+                
+                // Tell all jobs to finish rendering, make a call to the render to paint the image
+                // black and then issue the render call.
+                RendererClearRaytracedTexture(Renderer, &ResourceRegistry);
+                CreateRenderJobs(&Camera, BlockPixelWidth, BlockPixelHeight);
+            }
         }
         
         // Message loop
@@ -1749,7 +1671,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     
     ThreadManagerFree(&ThreadManager, &PermanantMemory, &TaggedHeap);
     
-    MstringFree(&GameDllCopy);
+    MstringFree(&GameDllName);
     
     //~ Close down ImGui
     MapleDevGuiFree();

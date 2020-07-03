@@ -69,6 +69,30 @@ asset_id CreateAsset(asset_registry *Registry, asset_type Type, void *CreateInfo
             
         } break;
         
+        case Asset_DynamicSphere:
+        {
+            dynamic_sphere_create_info *Info = (dynamic_sphere_create_info*)CreateInfo;
+            
+            asset_dynamic_sphere Sphere = {};
+            Sphere.Radius   = Info->Radius;
+            Sphere.Material = Info->Material;
+            Sphere.Time0 = Info->Time0;
+            Sphere.Time1 = Info->Time1;
+            Sphere.Center0 = Info->Center0;
+            Sphere.Center1 = Info->Center1;
+            
+            // Active the Id
+            Result.Index  = Registry->AssetsCount++;
+            Result.Active = 1;
+            
+            // Create the resource
+            asset *Asset         = (asset*)PoolAllocatorAlloc(&Registry->AssetAllocator);
+            Asset->Id            = Result;
+            Asset->DynamicSphere = Sphere;
+            
+            // Insert it into the list
+            Registry->Assets[Asset->Id.Index] = Asset;
+        } break;
         
         default: mprinte("Unknown asset type!\n"); break;
     };

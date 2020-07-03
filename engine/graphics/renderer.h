@@ -32,4 +32,6 @@ void RendererShutdown(renderer_t     *Renderer,
 void RendererResize(renderer_t Renderer, resource_registry *Registry);
 void RendererEntry(renderer_t Renderer, resource_registry *Registry, frame_params *FrameParams);
 
+void RendererClearRaytracedTexture(renderer_t Renderer, resource_registry *Registry);
+
 #endif //ENGINE_GRAPHICS_RENDERER_H

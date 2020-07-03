@@ -1,4 +1,42 @@
 
+// Create a semaphore with the max value
+void AtomicCounterInit(atomic_counter *Counter, u32 InitialValue)
+{
+    Counter->Value = InitialValue;
+    InitializeConditionVariable(&Counter->Signal);
+    InitializeCriticalSection(&Counter->CounterWrite);
+}
+
+// Waits until the specified value is reached by the counter
+void AtomicCounterWait(atomic_counter *Counter, u32 Value)
+{
+    EnterCriticalSection(&Counter->CounterWrite);
+    {
+        while (Counter->Value != Value)
+            SleepConditionVariableCS(&Counter->Signal, &Counter->CounterWrite, INFINITE);
+    }
+    LeaveCriticalSection(&Counter->CounterWrite);
+}
+
+void AtomicCounterIncrement(atomic_counter *Counter)
+{
+    EnterCriticalSection(&Counter->CounterWrite);
+    {
+        Counter->Value++;
+    }
+    LeaveCriticalSection(&Counter->CounterWrite);
+}
+
+void AtomicCounterDecrement(atomic_counter *Counter)
+{
+    EnterCriticalSection(&Counter->CounterWrite);
+    {
+        Counter->Value--;
+    }
+    LeaveCriticalSection(&Counter->CounterWrite);
+    
+    WakeAllConditionVariable(&Counter->Signal);
+}
 
 void ThreadSafeMemoryInit(thread_safe_memory *Memory, void *Ptr, u64 Size)
 {
@@ -34,22 +72,19 @@ void ThreadSafeMemoryCopy(thread_safe_memory *Memory, u32 SrcOffset, void *Dst, 
     }
 }
 
-void ThreadSafeMemoryReverseWrite(thread_safe_memory *Memory, u32 DstOffset, void *Src, u32 SrcOffset, u64 WriteSize)
+void ThreadSafeMemoryReverseWrite(thread_safe_memory *Memory, u32 DstOffset, u32 DstStride,
+                                  void *Src, u32 SrcOffset, u32 SrcStride,
+                                  u64 WriteSize)
 {
     if (Src && Memory->Handle)
     {
-        u32 MaxWriteIdx = SrcOffset + WriteSize - 1;
+        vec3 *Dst = (vec3*)((char*)Memory->Handle + DstOffset);
+        vec3 *cSrc = (vec3*)((char*)Src + SrcOffset);
         
         u32 MaxIdx = (WriteSize / sizeof(vec3)) - 1;
-        
         EnterCriticalSection(&Memory->BufferWrite);
         {
-            vec3 *Dst = (vec3*)((char*)Memory->Handle + DstOffset);
-            vec3 *cSrc = (vec3*)((char*)Src + SrcOffset);
-            
-            for (u32 i = 0; i <= MaxIdx; ++i)
-                Dst[i] = cSrc[MaxIdx - i];
-            //memcpy((char*)Memory->Handle + DstOffset, (char*)Src + SrcOffset, WriteSize);
+            for (u32 i = 0; i <= MaxIdx; ++i) Dst[i] = cSrc[MaxIdx - i];;
         }
         LeaveCriticalSection(&Memory->BufferWrite);
     }
@@ -66,6 +101,19 @@ void ThreadSafeMemoryWrite(thread_safe_memory *Memory, u32 DstOffset, void *Src,
         LeaveCriticalSection(&Memory->BufferWrite);
     }
 }
+
+void ThreadSafeMemoryMemset(thread_safe_memory *Memory, u32 DstOffset, u32 Value, u32 WriteSize)
+{
+    if (Memory->Handle)
+    {
+        EnterCriticalSection(&Memory->BufferWrite);
+        {
+            memset((char*)Memory->Handle + DstOffset, Value, WriteSize);
+        }
+        LeaveCriticalSection(&Memory->BufferWrite);
+    }
+}
+
 
 void ThreadSafeRingbufferInit(thread_safe_ringbuffer *Ringbuffer, free_allocator *Allocator, u32 MaxJobs)
 {
@@ -90,6 +138,16 @@ void ThreadSafeRingbufferFree(thread_safe_ringbuffer *Ringbuffer, free_allocator
     }
     LeaveCriticalSection(&Ringbuffer->BufferWrite);
     WakeAllConditionVariable(&Ringbuffer->BufferEmpty);
+}
+
+void ThreadSafeRingbufferClear(thread_safe_ringbuffer *Ringbuffer)
+{
+    EnterCriticalSection(&Ringbuffer->BufferWrite);
+    {
+        Ringbuffer->Head = 0;
+        Ringbuffer->Tail = 0;
+    }
+    LeaveCriticalSection(&Ringbuffer->BufferWrite);
 }
 
 // Push adds to the back of the ring.
@@ -143,15 +201,13 @@ DWORD WINAPI ThreadProc(_In_ LPVOID lpParameter)
     
     while (true)
     {
-        // Read into local stack if the thread needs to exit
-        bool ShouldExitThread;
-        EnterCriticalSection(&Storage->ThreadManager->ActiveWrite);
+        AcquireSRWLockShared(&Storage->ThreadManager->IsManagerActiveLock);
         {
-            ShouldExitThread = !Storage->ThreadManager->IsActive;
+            // NOTE(Dustin): Will breaking from the loop here induce a
+            // race condition?
+            if (!Storage->ThreadManager->IsActive) break;
         }
-        LeaveCriticalSection(&Storage->ThreadManager->ActiveWrite);
-        
-        if (ShouldExitThread) break;
+        ReleaseSRWLockShared(&Storage->ThreadManager->IsManagerActiveLock);
         
         thread_job Job;
         EnterCriticalSection(&DummyCritSection);
@@ -159,8 +215,9 @@ DWORD WINAPI ThreadProc(_In_ LPVOID lpParameter)
         {
             mprint("Putting thread %d to sleep!\n", Storage->ThreadId);
             BOOL Ret = SleepConditionVariableCS(&Storage->ThreadManager->Jobs.BufferEmpty,
-                                                &DummyCritSection, // NOTE(Dustin): Will this work?
-                                                1000);
+                                                &DummyCritSection,
+                                                INFINITE);
+            
             if (!Ret)
             {
                 DWORD Err = GetLastError();
@@ -185,6 +242,7 @@ DWORD WINAPI ThreadProc(_In_ LPVOID lpParameter)
         
         
         mprint("Running a job on thread %d!\n", Storage->ThreadId);
+        AtomicCounterIncrement(&Storage->ThreadManager->ActiveThreads);
         
         u32 BytesPerPixel = sizeof(vec3);
         
@@ -209,20 +267,20 @@ DWORD WINAPI ThreadProc(_In_ LPVOID lpParameter)
         {
             FrameParams.ScanHeight = 1;
             FrameParams.PixelYOffset = Job.PixelYOffset + j;
-            Storage->Callback(&FrameParams);
+            (*Storage->Callback)(&FrameParams);
             
             u32 ImageOffset
                 = ((BaseYOffset - j) * Storage->ImageWidth * BytesPerPixel)
                 + (Job.PixelXOffset * BytesPerPixel);
             
-            ThreadSafeMemoryReverseWrite(Storage->Image, ImageOffset, FrameParams.TextureBackbuffer, 0,
+            ThreadSafeMemoryReverseWrite(Storage->Image, ImageOffset, BytesPerPixel,
+                                         FrameParams.TextureBackbuffer, 0, BytesPerPixel,
                                          Job.ScanWidth * BytesPerPixel);
         }
         
         mprint("Finishing the job on thread %d!\n", Storage->ThreadId);
-        
-        // Reset the memory
         Storage->Heap.Brkp = Storage->Heap.Start;
+        AtomicCounterDecrement(&Storage->ThreadManager->ActiveThreads);
     }
     
     // Clean up local thread storage items (if necessary)
@@ -235,7 +293,7 @@ void ThreadManagerInit(thread_manager   *Manager,
                        free_allocator   *Allocator,
                        u32               ThreadCount,
                        tagged_heap       *Heap,
-                       game_stage_entry *Callback,
+                       game_stage_entry **Callback,
                        thread_safe_memory *Image,
                        u32 Width,
                        u32 Height)
@@ -243,8 +301,11 @@ void ThreadManagerInit(thread_manager   *Manager,
     Manager->ThreadCount = ThreadCount;
     ThreadSafeRingbufferInit(&Manager->Jobs, Allocator, 1000);
     
+    AtomicCounterInit(&Manager->ActiveThreads, 0);
+    
     Manager->IsActive = true;
-    InitializeCriticalSection(&Manager->ActiveWrite);
+    //InitializeCriticalSection(&Manager->ActiveWrite);
+    InitializeSRWLock(&Manager->IsManagerActiveLock);
     
     Manager->HeapTag = { 0, TAG_ID_THREAD, 0 };
     Manager->Threads = palloc<HANDLE>(Allocator, Manager->ThreadCount);
@@ -266,25 +327,15 @@ void ThreadManagerInit(thread_manager   *Manager,
                                            0,
                                            NULL);
     }
-    
-    // TODO(Dustin): TEMPORARY - check to see if the active threads check work
-    for (u32 i = 0; i < Manager->ThreadCount; ++i)
-    {
-        DWORD Result = WaitForSingleObject(&Manager->ThreadStorage[i], 0);
-        if (Result == WAIT_OBJECT_0)
-        {
-            mprinte("Created the thread manager, but thread %d has terminated!\n");
-        }
-    }
 }
 
 void ThreadManagerFree(thread_manager *Manager, free_allocator *Allocator, tagged_heap *Heap)
 {
-    EnterCriticalSection(&Manager->ActiveWrite);
+    AcquireSRWLockExclusive(&Manager->IsManagerActiveLock);
     {
         Manager->IsActive = false;
     }
-    LeaveCriticalSection(&Manager->ActiveWrite);
+    ReleaseSRWLockExclusive(&Manager->IsManagerActiveLock);
     
     ThreadSafeRingbufferFree(&Manager->Jobs, Allocator);
     
@@ -331,6 +382,16 @@ bool ThreadManagerActive(thread_manager *Manager)
     }
     
     return Result;
+}
+
+void ThreadManagerClearJobs(thread_manager *Manager)
+{
+    ThreadSafeRingbufferClear(&Manager->Jobs);
+}
+
+void ThreadManagerWaitForJobs(thread_manager *Manager, u32 Value)
+{
+    AtomicCounterWait(&Manager->ActiveThreads, Value);
 }
 
 void ThreadManagerAddJob(thread_manager *Manager, thread_job Job)

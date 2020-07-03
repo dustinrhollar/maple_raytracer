@@ -27,5 +27,16 @@ typedef struct renderer* renderer_t;
 #include <frame_info/frame_params.h>
 
 // Game Code
+#define MAX_FLOAT 3.402823466e38
+#define DegreesToRadian(d) (((d) * PI) / 180.0f)
+
+
 #include "camera/camera.h"
+#include "src/ray.h"
+#include "src/intersections.h"
+#include "src/material.h"
+
+#include "src/intersections.cpp"
+#include "src/material.cpp"
+#include "src/ray.cpp"
 #include "src/maple_raytracer.cpp"

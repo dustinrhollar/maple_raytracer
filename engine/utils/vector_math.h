@@ -1503,4 +1503,5 @@ r32 Schlick(r32 Cosine, r32 RefIdx)
 }
 
 
+
 #endif //MAPLE_VECTOR_MATH_IMPLEMENTATION

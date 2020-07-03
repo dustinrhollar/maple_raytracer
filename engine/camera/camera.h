@@ -10,12 +10,17 @@ struct camera
     
     vec3 U, V, W;
     r32 LensRadius;
+    r32 Time0, Time1; // camera shutter open/close times
 };
 
 void CameraInit(camera *Camera,
                 vec3 LookFrom, vec3 LookAt, vec3 Up,
-                r32 vFov, r32 AspectRatio, r32 Aperture, r32 FocusDist)
+                r32 vFov, r32 AspectRatio, r32 Aperture, r32 FocusDist,
+                r32 t0, r32 t1)
 {
+    Camera->Time0 = t0;
+    Camera->Time1 = t1;
+    
     r32 Theta = DegreesToRadians(vFov);
     r32 H = tanf(Theta / 2.0f);
     

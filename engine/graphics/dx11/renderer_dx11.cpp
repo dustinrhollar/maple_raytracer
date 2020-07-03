@@ -101,9 +101,24 @@ void RendererResize(renderer_t Renderer, resource_registry *Registry)
     pBuffer->Release();
 }
 
-void RendererUi()
+void RendererClearRaytracedTexture(renderer_t Renderer, resource_registry *Registry)
 {
+    ID3D11DeviceContext *DeviceContext = Registry->Resources[Renderer->Device.Index]->Device.Context;
+    ID3D11Texture2D     *Texture = Registry->Resources[Renderer->RaytracedTexture.Index]->Texture.Handle;
     
+    D3D11_MAPPED_SUBRESOURCE TextureResource;
+    HRESULT hr = DeviceContext->Map(Texture, 0, D3D11_MAP_WRITE_DISCARD, 0, &TextureResource);
+    
+    if (FAILED(hr))
+    {
+        mprinte("Failed to map the texture resource at setup!\n");
+    }
+    else
+    {
+        void* Backbuffer = TextureResource.pData;
+        PlatformSafeMemoryMemset(Renderer->Texture, 0, 0, TextureResource.DepthPitch);
+        DeviceContext->Unmap(Texture, 0);
+    }
 }
 
 file_internal void UpdateTextureResource(renderer_t Renderer, resource_registry *Registry)
