@@ -1412,6 +1412,12 @@ inline r32 Random(r32 Min, r32 Max)
     return Min + (Max - Min) * Random();
 }
 
+inline i32 RandomInt(i32 Min, i32 Max)
+{
+    i32 Rand = rand();
+    return Min + Rand % (Max - Min);
+}
+
 inline r32 Clamp(r32 Val, r32 Min, r32 Max)
 {
     if (Val < Min) return Min;

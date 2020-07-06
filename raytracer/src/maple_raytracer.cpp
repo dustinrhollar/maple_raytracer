@@ -1,5 +1,9 @@
 
+#if 1
+file_internal vec3 RayColor(ray *Ray, scene *Scene, u32 Depth)
+#else
 file_internal vec3 RayColor(ray *Ray, asset *Assets, u32 AssetsCount, u32 Depth)
+#endif
 {
     vec3 Result = {0, 0, 0};
     
@@ -8,14 +12,15 @@ file_internal vec3 RayColor(ray *Ray, asset *Assets, u32 AssetsCount, u32 Depth)
     {
         Result = {0, 0, 0};
     }
-    else if (RayIntersection(&Record, Ray, Assets, AssetsCount, 0.001, MAX_FLOAT))
+    else if (RaySceneIntersection(&Record, Ray, Scene, 0.001, MAX_FLOAT))
+        
     {
         ray ScatteredRay = {0};
         vec3 Attentuation;
         
         if (Scatter(&Record, Ray, &ScatteredRay, &Attentuation))
         {
-            Result = Attentuation * RayColor(&ScatteredRay, Assets, AssetsCount, Depth - 1);
+            Result = Attentuation * RayColor(&ScatteredRay, Scene, Depth - 1);
         }
     }
     else
@@ -37,16 +42,15 @@ file_internal vec3 RayColor(ray *Ray, asset *Assets, u32 AssetsCount, u32 Depth)
 
 extern "C" void GameStageEntry(frame_params* FrameParams)
 {
-    u32 ImageWidth  = FrameParams->TextureWidth;
-    u32 ImageHeight = FrameParams->TextureHeight;
-    
-    u32 SamplesPerPixel = 10;
-    u32 MaxDepth = 5;
+    u32 ImageWidth      = FrameParams->TextureWidth;
+    u32 ImageHeight     = FrameParams->TextureHeight;
+    u32 SamplesPerPixel = FrameParams->SamplesPerPixel;
+    u32 MaxDepth        = FrameParams->SampleDepth;
     
     u32 MaxXIdx = FrameParams->PixelXOffset + FrameParams->ScanWidth - 1;
-    
     vec3 *Image = (vec3*)FrameParams->TextureBackbuffer;
     u32 Idx = 0;
+    
     for (i32 j = 0; j < FrameParams->ScanHeight; ++j)
     {
         i32 RemapY = (FrameParams->ScanHeight - 1) - j;
@@ -66,7 +70,7 @@ extern "C" void GameStageEntry(frame_params* FrameParams)
                 r32 V = float(RealPixelY + Random()) / float(ImageHeight - 1);
                 
                 ray EyeRay = CameraGetRay(FrameParams->Camera, U, V);
-                Color += RayColor(&EyeRay, FrameParams->Assets, FrameParams->AssetsCount, MaxDepth);
+                Color += RayColor(&EyeRay, FrameParams->Scene, MaxDepth);
             }
             
             r32 Scale = 1.0f / (r32)SamplesPerPixel;

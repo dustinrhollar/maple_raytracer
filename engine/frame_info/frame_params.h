@@ -17,9 +17,8 @@ struct frame_params
     
     camera         *Camera;
     
-    //~ Assets
-    asset_t         Assets;
-    u32             AssetsCount;
+    //~ Scene
+    scene          *Scene;
     
     //~ Texture Memory
     void *TextureBackbuffer;
@@ -31,6 +30,8 @@ struct frame_params
     u32   ScanHeight;
     
     //~ Render Commands
+    u32 SamplesPerPixel, SampleDepth;
+    
     render_command  RenderCommands[100];
     u32             RenderCommandsCount;
 };

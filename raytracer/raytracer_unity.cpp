@@ -21,7 +21,10 @@ typedef struct renderer* renderer_t;
 
 #include <platform/platform.h>
 #include <graphics/resources.h>
+#include <collision/aabb.h>
+#include <assets/scene.h>
 #include <assets/asset.h>
+#include <collision/aabb.h>
 #include <ui/dev_ui.h>
 #include <graphics/render_command.h>
 #include <frame_info/frame_params.h>

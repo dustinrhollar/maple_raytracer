@@ -254,12 +254,13 @@ DWORD WINAPI ThreadProc(_In_ LPVOID lpParameter)
         FrameParams.PixelYOffset      = Job.PixelYOffset;
         FrameParams.ScanWidth         = Job.ScanWidth;
         FrameParams.ScanHeight        = Job.ScanHeight;
-        FrameParams.Camera            = Job.Camera;
-        CopyAssets(&FrameParams.Assets, &FrameParams.AssetsCount, Job.AssetRegistry, &Storage->Heap);
+        FrameParams.Scene             = Job.Settings->ActiveScene;
+        FrameParams.SamplesPerPixel   = Job.Settings->SamplesPerPixel;
+        FrameParams.SampleDepth       = Job.Settings->SampleDepth;
+        FrameParams.Camera            = &Job.Settings->Camera;
         
         FrameParams.TextureBackbuffer = TaggedHeapBlockAlloc(&Storage->Heap, Job.ScanWidth * BytesPerPixel);
         assert(FrameParams.TextureBackbuffer && "Could not allocate memory for the backbuffer");
-        
         
         u32 BaseXOffset = Storage->ImageWidth - Job.ScanWidth - Job.PixelXOffset;
         u32 BaseYOffset = Storage->ImageHeight - Job.PixelYOffset - 1; // - Job.ScanHeight
@@ -299,7 +300,7 @@ void ThreadManagerInit(thread_manager   *Manager,
                        u32 Height)
 {
     Manager->ThreadCount = ThreadCount;
-    ThreadSafeRingbufferInit(&Manager->Jobs, Allocator, 1000);
+    ThreadSafeRingbufferInit(&Manager->Jobs, Allocator, 10000);
     
     AtomicCounterInit(&Manager->ActiveThreads, 0);
     

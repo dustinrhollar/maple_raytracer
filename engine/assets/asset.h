@@ -5,41 +5,6 @@ struct resource_id;
 struct resource_registry;
 typedef struct asset* asset_t;
 
-struct lambertian
-{
-    vec3 Albedo;
-};
-
-struct metal
-{
-    vec3 Albedo;
-    r32  Fuzz;
-};
-
-struct dielectric
-{
-    r32 IndexOfRefraction;
-};
-
-enum material_type
-{
-    Material_Lambertian,
-    Material_Metal,
-    Material_Dielectric,
-};
-
-struct material
-{
-    material_type Type;
-    
-    union
-    {
-        lambertian Lambertian;
-        metal      Metal;
-        dielectric Dielectric;
-    };
-};
-
 struct asset_id
 {
     u64 Index:48; // Allows for 2^48 assets
@@ -105,7 +70,7 @@ struct asset
 struct asset_registry
 {
     // the asset registry does not *own* this pointer.
-    renderer_t      Renderer;
+    struct renderer      *Renderer;
     
     // Allocator managing device resources
     pool_allocator  AssetAllocator;
@@ -120,7 +85,7 @@ struct asset_registry
 };
 
 
-void AssetRegistryInit(asset_registry *Registry, renderer_t Renderer, free_allocator *GlobalMemoryAllocator,
+void AssetRegistryInit(asset_registry *Registry, struct renderer *Renderer, free_allocator *GlobalMemoryAllocator,
                        u32 MaximumAssets);
 void AssetRegistryFree(asset_registry *Registry, free_allocator *GlobalMemoryAllocator);
 
@@ -129,10 +94,12 @@ void CopyAssets(asset_t *Assets, u32 *AssetsCount, asset_registry *AssetRegistry
 
 inline bool IsValidAsset(asset_t Assets, asset_id Id);
 
-inline vec3 GetSphereCenter(asset_dynamic_sphere *Sphere, r32 Time)
+
+inline vec3 GetAssetSphereCenter(struct asset_dynamic_sphere *Sphere, r32 Time)
 {
     return Sphere->Center0
         + ((Time - Sphere->Time0) / (Sphere->Time1 - Sphere->Time0))*(Sphere->Center1 - Sphere->Center0);
 }
+
 
 #endif //ENGINE_ASSETS_ASSET_H

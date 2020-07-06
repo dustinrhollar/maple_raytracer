@@ -46,18 +46,21 @@
 
 //~ Graphics API
 
+#include "camera/camera.h"
+#include "collision/aabb.h"
+#include "assets/scene.h"
+#include "assets/asset.h"
+
 #include "graphics/graphics.h"
 #include "graphics/resources.h"
 #include "graphics/renderer.h"
-
-//~ Assets
 
 // gltf converter
 #include "assets/gltf_converter.h"
 #include "assets/gltf_converter.cpp"
 
-#include "assets/asset.h"
 #include "assets/asset.cpp"
+#include "assets/scene.cpp"
 
 //~ UI
 
@@ -67,9 +70,7 @@
 
 #include "ui/win32/imgui_impl_win32.h"
 #include "ui/ui.h"
-
 #include "ui/dev_ui.h"
-#include "ui/dev_ui.cpp"
 
 #include "graphics/render_command.h"
 
@@ -78,13 +79,12 @@
 
 #include "graphics/render_command.h"
 
-#include "camera/camera.h"
-
 //~ Platform Specific Code & Entry point
 
 #include "graphics/dx11/maple_dx11.cpp"
 #include "graphics/dx11/resources_dx11.cpp"
 #include "graphics/dx11/renderer_dx11.cpp"
+#include "ui/dev_ui.cpp"
 
 #include "platform/platform_entry.cpp"
 

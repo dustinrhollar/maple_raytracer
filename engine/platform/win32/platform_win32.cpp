@@ -56,7 +56,6 @@ file_global tagged_heap_block PlatformHeap;
 // graphics state
 file_global renderer_t        Renderer;
 file_global resource_registry ResourceRegistry;
-file_global asset_registry    AssetRegistry;
 file_global thread_manager    ThreadManager;
 
 // File I/O Handling
@@ -1223,31 +1222,36 @@ void PlatformGetClientWindowDimensions(u32 *Width, u32 *Height)
     *Height = rect.bottom - rect.top;
 }
 
-void CreateRenderJobs(camera* Camera, u32 BlockPixelWidth, u32 BlockPixelHeight)
+void PlatformCancelAllJobs()
 {
-    u32 BlockWidth  = Renderer->TextureWidth / BlockPixelWidth;
-    if (Renderer->TextureWidth % BlockPixelWidth != 0) BlockWidth++;
+    ThreadManagerClearJobs(&ThreadManager);
+    ThreadManagerWaitForJobs(&ThreadManager, 0);
+}
+
+void PlatformCreateRenderJobs(render_settings *RenderSettings)
+{
+    u32 BlockWidth  = Renderer->TextureWidth / RenderSettings->ScanWidth;
+    if (Renderer->TextureWidth % RenderSettings->ScanWidth != 0) BlockWidth++;
     
-    u32 BlockHeight = Renderer->TextureHeight / BlockPixelHeight;
-    if (Renderer->TextureHeight % BlockPixelHeight != 0) BlockHeight++;
+    u32 BlockHeight = Renderer->TextureHeight / RenderSettings->ScanHeight;
+    if (Renderer->TextureHeight % RenderSettings->ScanHeight != 0) BlockHeight++;
     
     u32 BlockCount = BlockWidth * BlockHeight;
     
-    i32 StartXCoord = Renderer->TextureWidth - BlockPixelWidth;
-    i32 StartYCoord = Renderer->TextureHeight - BlockPixelHeight;
+    i32 StartXCoord = Renderer->TextureWidth - RenderSettings->ScanWidth;
+    i32 StartYCoord = Renderer->TextureHeight - RenderSettings->ScanHeight;
     for (i32 j = 0; j < BlockHeight; ++j)
     {
         for (u32 i = 0; i < BlockWidth; ++i)
         {
             thread_job Job = {0};
-            Job.Camera = Camera;
-            Job.AssetRegistry = &AssetRegistry;
+            Job.Settings = RenderSettings;
             
-            u32 StartXPixel = i * BlockPixelWidth;
-            u32 StartYPixel = j * BlockPixelHeight;
+            u32 StartXPixel = i * RenderSettings->ScanWidth;
+            u32 StartYPixel = j * RenderSettings->ScanHeight;
             
             // Remap the Y pixel
-            i32 RemappingY = StartYCoord - (j * BlockPixelHeight);
+            i32 RemappingY = StartYCoord - (j * RenderSettings->ScanHeight);
             RemappingY = (RemappingY < 0) ? 0 : RemappingY;
             
             Job.ImageOffset   = (RemappingY * Renderer->TextureWidth) + StartXPixel;
@@ -1255,130 +1259,14 @@ void CreateRenderJobs(camera* Camera, u32 BlockPixelWidth, u32 BlockPixelHeight)
             Job.ImageHeight   = Renderer->TextureHeight;
             Job.PixelXOffset  = StartXPixel;
             Job.PixelYOffset  = StartYPixel;
-            Job.ScanWidth = (StartXPixel + BlockPixelWidth > Renderer->TextureWidth)
-                ? (Renderer->TextureWidth - StartXPixel) : BlockPixelWidth;
-            Job.ScanHeight = (StartYPixel + BlockPixelHeight > Renderer->TextureHeight)
-                ? (Renderer->TextureHeight - StartYPixel) : BlockPixelHeight;
+            Job.ScanWidth = (StartXPixel + RenderSettings->ScanWidth > Renderer->TextureWidth)
+                ? (Renderer->TextureWidth - StartXPixel) : RenderSettings->ScanWidth;
+            Job.ScanHeight = (StartYPixel + RenderSettings->ScanHeight > Renderer->TextureHeight)
+                ? (Renderer->TextureHeight - StartYPixel) : RenderSettings->ScanHeight;
             
             ThreadManagerAddJob(&ThreadManager, Job);
         }
     }
-}
-
-file_internal void MakeSphere(asset_registry *Registry, vec3 Origin, r32 Radius,  material Material)
-{
-    sphere_create_info Result = {};
-    
-    Result.Origin = Origin;
-    Result.Radius = Radius;
-    Result.Material = Material;
-    
-    CreateAsset(Registry, Asset_Sphere, &Result);
-}
-
-file_internal void MakeDynamicSphere(asset_registry *Registry,
-                                     vec3 Center0, vec3 Center1,
-                                     r32 Time0, r32 Time1,
-                                     r32 Radius,
-                                     material Material)
-{
-    dynamic_sphere_create_info Result = {};
-    
-    Result.Center0 = Center0;
-    Result.Center1 = Center1;
-    Result.Time0 = Time0;
-    Result.Time1 = Time1;
-    Result.Radius = Radius;
-    Result.Material = Material;
-    
-    CreateAsset(Registry, Asset_DynamicSphere, &Result);
-}
-
-file_internal material MakeLambertian(vec3 Albedo)
-{
-    material Result = {};
-    
-    Result.Type = Material_Lambertian;
-    Result.Lambertian.Albedo = Albedo;
-    
-    return Result;
-}
-
-file_internal material MakeMetal(vec3 Albedo, r32 Fuzz)
-{
-    material Result = {};
-    
-    Result.Type = Material_Metal;
-    Result.Metal.Albedo = Albedo;
-    Result.Metal.Fuzz = Fuzz;
-    
-    return Result;
-}
-
-file_internal material MakeDielectric(r32 IoR)
-{
-    material Result = {};
-    
-    Result.Type = Material_Dielectric;
-    Result.Dielectric.IndexOfRefraction = IoR;
-    
-    return Result;
-}
-
-file_internal void BuildRandomScene(asset_registry *Registry)
-{
-    material GroundMaterial = MakeLambertian({ 0.5f, 0.5f, 0.5f });
-    MakeSphere(Registry, { 0, -1000, 0 }, 1000, GroundMaterial);
-    
-    for (i32 a = -11; a < 11; ++a)
-    {
-        for (i32 b = -11; b < 11; ++b)
-        {
-            r32 ChooseMat = Random();
-            vec3 Center = { a * 0.9f * Random(), 0.2f, b + 0.9f * Random() };
-            
-            vec3 Point = { 4, 0.2f, 0 };
-            if (mag(Center - Point) > 0.9f)
-            {
-                if (ChooseMat < 0.8f)
-                {
-                    vec3 Albedo = RandomVec3() * RandomVec3();
-                    material Mat = MakeLambertian(Albedo);
-                    //MakeSphere(Registry, Center, 0.2f, Mat);
-                    
-                    vec3 RandY = { 0, Random(0, 0.5f), 0 };
-                    vec3 Center2 = Center + RandY;
-                    MakeDynamicSphere(Registry, Center, Center2, 0.0f, 1.0f, 0.2f, Mat);
-                }
-                else if (ChooseMat < 0.95f)
-                {
-                    vec3 Albedo = {
-                        0.5f * (1 + Random()),
-                        0.5f * (1 + Random()),
-                        0.5f * (1 + Random())
-                    };
-                    
-                    r32 Fuzz = Random(0.0f, 0.5f);
-                    material Mat = MakeMetal(Albedo, Fuzz);
-                    MakeSphere(Registry, Center, 0.2f, Mat);
-                }
-                else
-                {
-                    material Mat = MakeDielectric(1.5f);
-                    MakeSphere(Registry, Center, 0.2f, Mat);
-                }
-            }
-        }
-    }
-    
-    material Mat1 = MakeDielectric(1.5f);
-    MakeSphere(Registry, { 0, 1, 0 }, 1.0f, Mat1);
-    
-    material Mat2 = MakeLambertian({ 0.4, 0.2, 0.1 });
-    MakeSphere(Registry, { -4, 1, 0 }, 1.0f, Mat2);
-    
-    material Mat3 = MakeMetal({ 0.7, 0.6, 0.5 }, 0.0f);
-    MakeSphere(Registry, { 4, 1, 0 }, 1.0f, Mat3);
 }
 
 INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow)
@@ -1456,8 +1344,6 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
                  ClientWindowHeight,
                  60);
     
-    AssetRegistryInit(&AssetRegistry, Renderer, &PermanantMemory, 1000);
-    
     //~ Initialize ImGui stuff
     ImGuiContext *ctx = ImGui::CreateContext();
     if (!ImGui_ImplWin32_Init(ClientWindow))
@@ -1488,83 +1374,43 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     mstring GameDllName = Win32NormalizePath("example.dll");
     Win32LoadGameCode(&GameCode, GetStr(&GameDllName));
     
-    vec3 CameraOrigin = { 13, 2, 3 };
-    vec3 LookAt = { 0, 0, 0 };
     
-    camera Camera;
-    CameraInit(&Camera,
-               CameraOrigin,
-               LookAt,
-               { 0, 1, 0 },
-               20,
-               (r32)Renderer->TextureWidth / (r32)Renderer->TextureHeight,
-               0.1f,
-               10.0f, 0.0f, 1.0f);
+    //~ Render Data + Scenes
+    render_settings Settings = {};
+    Settings.LookFrom        = { 13, 2, 3 };
+    Settings.LookAt          = { 0, 0, 0 };
+    Settings.Up              = { 0, 1, 0 };
+    Settings.vFov            = 20;
+    Settings.AspectRatio     = (r32)Renderer->TextureWidth / (r32)Renderer->TextureHeight;
+    Settings.Aperture        = 0.1f;
+    Settings.FocusDist       = 10.0f;
+    Settings.Time0           = 0.0f;
+    Settings.Time1           = 1.0f;
+    CameraInit(&Settings.Camera,
+               Settings.LookFrom,
+               Settings.LookAt,
+               Settings.Up,
+               Settings.vFov,
+               Settings.AspectRatio,
+               Settings.Aperture,
+               Settings.FocusDist, 
+               Settings.Time0,
+               Settings.Time1);
+    Settings.ScanWidth       = 100;
+    Settings.ScanHeight      = 100;
+    Settings.SamplesPerPixel = 100;
+    Settings.SampleDepth     = 50;
     
-    //~ Create assets for the raytracer
-    if (false)
-    {
-        sphere_create_info s1 = {};
-        s1.Origin = { 0.0f, 0.0f, -1.0f };
-        s1.Radius = 0.5f;
-        s1.Material.Type = Material_Lambertian;
-        s1.Material.Lambertian = { { 0.1f, 0.2f, 0.5f } };
-        CreateAsset(&AssetRegistry, Asset_Sphere, &s1);
-        
-        sphere_create_info s2 = {};
-        s2.Origin = { 0.0f, -100.5f, -1.0f };
-        s2.Radius = 100.0f;
-        s2.Material.Type = Material_Lambertian;
-        s2.Material.Lambertian = { { 0.8f, 0.8f, 0.0f } };
-        CreateAsset(&AssetRegistry, Asset_Sphere, &s2);
-        
-        sphere_create_info s3 = {};
-        s3.Origin = { 1, 0, -1 };
-        s3.Radius = 0.5f;
-        s3.Material.Type = Material_Metal;
-        s3.Material.Metal = { { 0.8f, 0.6f, 0.2f }, 0.3f };
-        CreateAsset(&AssetRegistry, Asset_Sphere, &s3);
-        
-        sphere_create_info s4 = {};
-        s4.Origin = { -1, 0, -1 };
-        s4.Radius = 0.5f;
-        s4.Material.Type = Material_Dielectric;
-        s4.Material.Metal = { 1.5f };
-        CreateAsset(&AssetRegistry, Asset_Sphere, &s4);
-        
-        sphere_create_info s5 = {};
-        s5.Origin = { -1, 0, -1 };
-        s5.Radius = -0.45f;
-        s5.Material.Type = Material_Dielectric;
-        s5.Material.Metal = { 1.5f };
-        CreateAsset(&AssetRegistry, Asset_Sphere, &s5);
-    }
-    else if (false)
-    {
-        r32 R = cosf(PI / 4.0f);
-        sphere_create_info s1 = {};
-        s1.Origin = { -R, 0.0f, -1.0f };
-        s1.Radius = R;
-        s1.Material.Type = Material_Lambertian;
-        s1.Material.Lambertian = { { 0.0f, 0.0f, 1.0f } };
-        CreateAsset(&AssetRegistry, Asset_Sphere, &s1);
-        
-        sphere_create_info s2 = {};
-        s2.Origin = { R, 0.0f, -1.0f };
-        s2.Radius = R;
-        s2.Material.Type = Material_Lambertian;
-        s2.Material.Lambertian = { { 1.0f, 0.0f, 0.0f } };
-        CreateAsset(&AssetRegistry, Asset_Sphere, &s2);
-    }
-    else if (true)
-    {
-        BuildRandomScene(&AssetRegistry);
-    }
+    SceneInit(&Settings.Scenes[0], &PermanantMemory, 1000);
+    SceneInit(&Settings.Scenes[1], &PermanantMemory, 1000);
     
-    u32 BlockPixelWidth  = 100;
-    u32 BlockPixelHeight = 100;
+    BuildSimpleScene(&Settings.Scenes[0]);
+    BuildRandomScene(&Settings.Scenes[1]);
+    Settings.ActiveScene = &Settings.Scenes[1];
     
-    CreateRenderJobs(&Camera, BlockPixelWidth, BlockPixelHeight);
+    Renderer->RenderSettings = Settings;
+    
+    PlatformCreateRenderJobs(&Renderer->RenderSettings);
     
     //~ Render Loop
     ShowWindow(ClientWindow, nCmdShow);
@@ -1581,8 +1427,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     {
         frame_params FrameParams = {};
         FrameParamsInit(&FrameParams, FrameCount++, PlatformGetWallClock(), &PermanantMemory, Renderer,
-                        &ResourceRegistry, &AssetRegistry);
-        //FrameParams.TextureBackbuffer = Renderer->TextureBackbuffer;
+                        &ResourceRegistry, NULL);
         FrameParams.TextureWidth = Renderer->TextureWidth;
         FrameParams.TextureHeight = Renderer->TextureHeight;
         
@@ -1597,8 +1442,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
             
             if (CompareFileTime(&DllWriteTime, &GameCode.DllLastWriteTime) != 0)
             {
-                ThreadManagerClearJobs(&ThreadManager);
-                ThreadManagerWaitForJobs(&ThreadManager, 0);
+                PlatformCancelAllJobs();
                 
                 Win32UnloadGameCode(&GameCode);
                 Win32LoadGameCode(&GameCode, GetStr(&GameDllName));
@@ -1606,7 +1450,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
                 // Tell all jobs to finish rendering, make a call to the render to paint the image
                 // black and then issue the render call.
                 RendererClearRaytracedTexture(Renderer, &ResourceRegistry);
-                CreateRenderJobs(&Camera, BlockPixelWidth, BlockPixelHeight);
+                PlatformCreateRenderJobs(&Renderer->RenderSettings);
             }
         }
         
@@ -1680,7 +1524,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     
     //~ Free Graphics layer
     RendererShutdown(&Renderer, &PermanantMemory);
-    AssetRegistryFree(&AssetRegistry, &PermanantMemory);
+    //SceneFree(&AssetRegistry, &PermanantMemory);
     ResourceRegistryFree(&ResourceRegistry, &PermanantMemory);
     
     //~ Close up the memory pools

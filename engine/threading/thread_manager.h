@@ -34,17 +34,14 @@ void ThreadSafeMemoryMemset(thread_safe_memory *Memory, u32 DstOffset, u32 Value
 
 struct thread_job
 {
-    u32             ImageOffset;
-    u32             ImageWidth;
-    u32             ImageHeight;
-    u32             PixelXOffset;
-    u32             PixelYOffset;
-    u32             ScanWidth;
-    u32             ScanHeight;
-    camera         *Camera;
-    // TODO(Dustin): Move to the manager. No need to have a unique copy of this
-    // for each job.
-    asset_registry *AssetRegistry; // needed to copy the assets over into local mem
+    u32              ImageOffset;
+    u32              ImageWidth;
+    u32              ImageHeight;
+    u32              PixelXOffset;
+    u32              PixelYOffset;
+    u32              ScanWidth;    // stored outside of render_settings because is dependent on job
+    u32              ScanHeight;   // stored outside of render_settings because is dependent on job
+    render_settings *Settings;
 };
 
 struct thread_safe_ringbuffer

@@ -3,6 +3,30 @@
 
 typedef struct renderer* renderer_t;
 
+struct render_settings
+{
+    // Window Settings
+    // TODO(Dustin): Restrict window sizes by aspect ratios
+    i32 WindowWidth;
+    i32 WindowHeight;
+    
+    // Render Settings
+    i32     ScanWidth;
+    i32     ScanHeight;
+    i32     SamplesPerPixel;
+    i32     SampleDepth;
+    
+    // Scene Settings
+    scene   Scenes[2];
+    u32     ScenesCount = 2;
+    scene  *ActiveScene;
+    
+    // Camera Settings
+    struct camera Camera;
+    vec3 LookFrom, LookAt, Up;
+    r32 vFov, AspectRatio, Aperture, FocusDist, Time0, Time1;
+};
+
 struct renderer
 {
     resource_id Device;
@@ -17,6 +41,8 @@ struct renderer
     u64           TextureSize;
     void         *NotSafeMemory;
     safe_memory_t Texture;
+    
+    render_settings RenderSettings;
 };
 
 void RendererInit(renderer_t        *Renderer,

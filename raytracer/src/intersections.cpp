@@ -1,5 +1,5 @@
 
-file_internal bool SphereIntersection(hit_record *Record, ray *Ray, asset_sphere *Sphere, r32 Tmin, r32 Tmax)
+file_internal bool SphereIntersection(hit_record *Record, ray *Ray, sphere *Sphere, r32 Tmin, r32 Tmax)
 {
     bool Result = false;
     
@@ -42,11 +42,11 @@ file_internal bool SphereIntersection(hit_record *Record, ray *Ray, asset_sphere
     return Result;
 }
 
-file_internal bool DynamicSphereIntersection(hit_record           *Record,
-                                             ray                  *Ray,
-                                             asset_dynamic_sphere *Sphere,
-                                             r32                   Tmin,
-                                             r32                   Tmax)
+file_internal bool DynamicSphereIntersection(hit_record     *Record,
+                                             ray            *Ray,
+                                             dynamic_sphere *Sphere,
+                                             r32             Tmin,
+                                             r32             Tmax)
 {
     bool Result = false;
     vec3 SphereCenter = GetSphereCenter(Sphere, Ray->Time);
@@ -85,6 +85,30 @@ file_internal bool DynamicSphereIntersection(hit_record           *Record,
                 Result = true;
             }
         }
+    }
+    
+    return Result;
+}
+
+file_internal bool BvhNodeIntersection(hit_record     *Record,
+                                       ray            *Ray,
+                                       bvh_node       *Node,
+                                       aabb           *BoundingBox,
+                                       r32             Tmin,
+                                       r32             Tmax)
+{
+    bool Result;
+    
+    if (!AabbRayIntersection(Ray->Origin, Ray->Dir, 
+                             BoundingBox, Tmin, Tmax))
+    {
+        Result = false;
+    }
+    else 
+    {
+        bool HitLeft  = RayPrimitiveIntersection(Record, Ray, Node->Left, Tmin, &Tmax);
+        bool HitRight = RayPrimitiveIntersection(Record, Ray, Node->Right, Tmin, HitLeft ? &Record->t : &Tmax);
+        Result = HitLeft || HitRight;
     }
     
     return Result;

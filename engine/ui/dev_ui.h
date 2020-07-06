@@ -3,7 +3,7 @@
 
 struct frame_params;
 
-#define MAPLE_DEV_UI_CALLBACK(fn) void fn(frame_params *FrameParams)
+#define MAPLE_DEV_UI_CALLBACK(fn) void fn(struct render_settings *RenderSettings)
 typedef MAPLE_DEV_UI_CALLBACK(maple_dev_ui_callback);
 
 MAPLE_DEV_UI_CALLBACK(RaytraceCallback);

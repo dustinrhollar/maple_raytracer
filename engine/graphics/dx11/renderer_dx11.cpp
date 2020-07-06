@@ -199,7 +199,7 @@ void RendererEntry(renderer_t Renderer, resource_registry *Registry, frame_param
             
             case RenderCmd_DrawDevUi:
             {
-                RenderCmd.DrawDevUi.Callback(FrameParams);
+                RenderCmd.DrawDevUi.Callback(&Renderer->RenderSettings);
             } break;
         }
     }

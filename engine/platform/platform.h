@@ -35,6 +35,11 @@ void PlaformSafeMemoryWrite(safe_memory_t Memory, u32 DstOffset, void *Src, u32 
 void PlatformSafeMemoryMemset(safe_memory_t Memory, u32 DstOffset, u32 Value, u32 WriteSize);
 void PlatformSafeMemoryRelease(safe_memory_t *Memory);
 
+// Cancel is currently a blocking function, it will wait until all jobs have been completed
+// TODO(Dustin): Make this function non-blocking 
+void PlatformCancelAllJobs();
+void PlatformCreateRenderJobs(struct render_settings *RenderSettings);
+
 // Log/Printing
 #define mformat PlatformFormatString
 inline void mprint(char *fmt, ...);

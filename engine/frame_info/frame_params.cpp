@@ -27,8 +27,9 @@ void FrameParamsFree(frame_params *FrameParams, free_allocator *Allocator)
     FrameParams->RenderStageStartTime = 0;
     FrameParams->RenderStageEndTime   = 0;
     FrameParams->RenderCommandsCount  = 0;
-    FrameParams->AssetsCount          = 0;
-    FrameParams->Assets               = NULL;
+    //FrameParams->AssetsCount          = 0;
+    //FrameParams->Assets               = NULL;
+    FrameParams->Scene                = NULL;
     
     FrameParams->TextureBackbuffer = 0;
     FrameParams->TextureWidth = 0;
